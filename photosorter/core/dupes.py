@@ -52,6 +52,10 @@ class DuplicateResult:
     groups: list[DupeGroup]
     oversized_buckets: int
     pairs_compared: int
+    #: How many records sat past the cap in a degenerate bucket and so were
+    #: never near-matched. The only duplicates this module can miss, counted so
+    #: the UI can say "4,000 near-identical frames were too alike to compare".
+    capped_records: int = 0
 
 
 def band_keys(phash_hex: str, bands: int = 5) -> list[tuple[int, int]]:
@@ -59,7 +63,15 @@ def band_keys(phash_hex: str, bands: int = 5) -> list[tuple[int, int]]:
 
     The 64 bits are split into `bands` contiguous segments as evenly as
     possible, the wider ones first (13/13/13/13/12 for the default 5).
+
+    The pigeonhole guarantee is specific to a 64-bit hash, so a hash of any
+    other width is refused rather than silently banded on its low 64 bits.
+    That would still never group two different photos, but it would quietly
+    stop finding every duplicate - the one failure this module exists to
+    prevent, and the one that is invisible without an error.
     """
+    if len(phash_hex) != _HASH_BITS // 4:
+        raise ValueError(f"phash must be {_HASH_BITS // 4} hex characters ({_HASH_BITS} bits), got {phash_hex!r}")
     value = int(phash_hex, 16)
     width, wide = divmod(_HASH_BITS, bands)
     keys: list[tuple[int, int]] = []
@@ -107,7 +119,10 @@ def _is_duplicate(a: FileRecord, b: FileRecord, paths: Paths, cache: dict) -> bo
         return False
     if hamming(a.phash, b.phash) > NEAR_DISTANCE:
         return False
-    if a.ext.lower() == b.ext.lower() == ".png" and a.sha256 != b.sha256:
+    # An empty sha256 means "unknown", not "same": it must never be read as
+    # proof that the two files are byte-identical and wave the guard through.
+    known_identical = bool(a.sha256) and a.sha256 == b.sha256
+    if a.ext.lower() == b.ext.lower() == ".png" and not known_identical:
         return not _looks_like_another_screen(a, b, paths, cache)
     return True
 
@@ -151,22 +166,34 @@ def find_duplicates(
     # trustworthy hash, so it is never near-matched.
     buckets: dict[tuple[int, int], list[int]] = {}
     done = 0
+    # Indexing is the first half of the progress bar and comparing the second,
+    # because comparing is where the time goes and a bar that reads 100% before
+    # the slow part starts is worse than no bar.
+    half = total // 2
     for r in records:
         if r.phash and not r.error:
             for key in band_keys(r.phash, _BANDS):
                 buckets.setdefault(key, []).append(r.id)
         done += 1
         if on_progress and done % _PROGRESS_EVERY == 0:
-            on_progress(done, total)
+            on_progress(done // 2, total)
 
     cache: dict[int, Image.Image | None] = {}
-    oversized = pairs = 0
+    oversized = pairs = buckets_done = 0
+    capped: set[int] = set()
+    tick = max(1, len(buckets) // 100)
     for ids in buckets.values():
         if len(ids) > max_bucket:
             # Thousands of near-blank frames share band values and collapse into
             # one bucket, restoring quadratic cost locally. Cap it and say so.
+            # The cap is a prefix of a stable record order, so every band keeps
+            # the same first max_bucket ids rather than splintering the group.
             oversized += 1
+            capped.update(ids[max_bucket:])
             ids = ids[:max_bucket]
+        buckets_done += 1
+        if on_progress and buckets_done % tick == 0:
+            on_progress(half + half * buckets_done // len(buckets), total)
         for i, a in enumerate(ids):
             for b in ids[i + 1 :]:
                 if find(a) == find(b):
@@ -174,6 +201,12 @@ def find_duplicates(
                 pairs += 1
                 if _is_duplicate(by_id[a], by_id[b], paths, cache):
                     union(a, b)
+
+    if capped:
+        # A record cut from one band may still have been compared in another, so
+        # only the ones every band dropped went genuinely unchecked.
+        for ids in buckets.values():
+            capped.difference_update(ids[:max_bucket])
 
     components: dict[int, list[int]] = {}
     for r in records:
@@ -186,11 +219,13 @@ def find_duplicates(
         members = [by_id[i] for i in ids]
         keeper = min(members, key=lambda r: (-r.bytes, len(r.name), r.name, r.id))
         dupes = [i for i in ids if i != keeper.id]
+        # "exact" is a claim about bytes, so it needs one *known* sha for all.
+        shas = {m.sha256 for m in members}
         groups.append(
             DupeGroup(
                 keep=keeper.id,
                 dupes=dupes,
-                type="exact" if len({m.sha256 for m in members}) == 1 else "near",
+                type="exact" if shas != {""} and len(shas) == 1 else "near",
                 freed=sum(by_id[i].bytes for i in dupes),
             )
         )
@@ -199,7 +234,9 @@ def find_duplicates(
     build_dupe_sheet(groups, paths)
     if on_progress:
         on_progress(total, total)
-    return DuplicateResult(groups=groups, oversized_buckets=oversized, pairs_compared=pairs)
+    return DuplicateResult(
+        groups=groups, oversized_buckets=oversized, pairs_compared=pairs, capped_records=len(capped)
+    )
 
 
 def build_dupe_sheet(groups: list[DupeGroup], paths: Paths, limit: int = 60) -> Path | None:

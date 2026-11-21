@@ -3,6 +3,7 @@ import random
 import time
 from pathlib import Path
 
+import pytest
 from PIL import Image, ImageChops
 
 from photosorter.config import Paths, read_json
@@ -68,6 +69,14 @@ def test_hashes_within_distance_four_always_share_a_band():
         for p in positions:
             other ^= 1 << p
         assert base_keys & set(band_keys(f"{other:016x}"))
+
+
+def test_a_hash_that_is_not_64_bits_is_refused_loudly():
+    # Banding a wider hash on its low 64 bits would still never group two
+    # different photos, but it would silently stop finding every duplicate.
+    for bad in ["ffffffffffffffff0", "fff", ""]:
+        with pytest.raises(ValueError):
+            band_keys(bad)
 
 
 def test_hamming_counts_differing_bits():
@@ -141,6 +150,19 @@ def test_png_pixel_guard_separates_different_screens_of_the_same_app(tmp_path):
     assert find_duplicates(recs, paths).groups == []
 
 
+def test_png_pixel_guard_runs_when_sha256_is_unknown(tmp_path):
+    # An empty sha256 is "unknown", not "identical": reading it as identical
+    # would wave two different screens straight past the guard.
+    paths = Paths(root=tmp_path)
+    thumb(paths, 0)
+    thumb(paths, 1, box=(0, 0, 64, 64))
+    recs = [rec(0, ext=".png", sha=""), rec(1, ext=".png", sha="")]
+    assert find_duplicates(recs, paths).groups == []
+    # nor may an unknown sha be reported as a byte-identical ("exact") group
+    same = [rec(0, ext=".jpg", sha=""), rec(1, ext=".jpg", sha="")]
+    assert find_duplicates(same, paths).groups[0].type == "near"
+
+
 def test_png_pixel_guard_still_groups_resaved_identical_screenshots(tmp_path):
     paths = Paths(root=tmp_path)
     thumb(paths, 0, box=(0, 0, 64, 64))
@@ -170,11 +192,12 @@ def bruteforce(recs, paths):
 
     for a, b in itertools.combinations(recs, 2):
         same = False
-        if a.sha256 and a.sha256 == b.sha256:
+        known_identical = bool(a.sha256) and a.sha256 == b.sha256
+        if known_identical:
             same = True
         elif a.phash and b.phash and not a.error and not b.error:
             if a.kind == b.kind and hamming(a.phash, b.phash) <= 4:
-                guard = a.ext == b.ext == ".png" and a.sha256 != b.sha256
+                guard = a.ext == b.ext == ".png" and not known_identical
                 same = not (guard and changed_fraction(paths, a.id, b.id) > 0.004)
         if same:
             parent[find(a.id)] = find(b.id)
@@ -220,6 +243,28 @@ def test_thousands_of_identical_hashes_stay_fast_and_are_reported(tmp_path):
     result = find_duplicates(recs, paths, max_bucket=1000)
     assert time.monotonic() - t0 < 10
     assert result.oversized_buckets >= 1
+    # the skipped records are counted, so the UI can say how many went unchecked
+    assert result.capped_records == 4000
+    assert sum(len(g.dupes) + 1 for g in result.groups) == 1000
+
+
+def test_nothing_is_reported_as_capped_when_no_bucket_overflows(tmp_path):
+    paths = Paths(root=tmp_path)
+    result = find_duplicates([rec(0), rec(1)], paths)
+    assert (result.oversized_buckets, result.capped_records) == (0, 0)
+
+
+def test_progress_keeps_moving_through_the_comparison_pass(tmp_path):
+    paths = Paths(root=tmp_path)
+    seen = []
+    rng = random.Random(11)
+    recs = [rec(i, phash=f"{rng.getrandbits(64):016x}") for i in range(3000)]
+    find_duplicates(recs, paths, on_progress=lambda d, t: seen.append((d, t)))
+    assert seen[-1] == (3000, 3000)
+    assert all(t == 3000 for _, t in seen)
+    assert seen == sorted(seen)  # monotonic
+    # the second half of the bar belongs to the pair comparison, not to indexing
+    assert any(1500 < d < 3000 for d, _ in seen)
 
 
 # --- outputs -------------------------------------------------------------
