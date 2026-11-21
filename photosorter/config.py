@@ -11,6 +11,7 @@ Your original photos are only ever read. Nothing here writes outside `root`.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -109,16 +110,28 @@ class Paths:
         return self.root / "categories.json"
 
 
-def read_json(path: Path, default: Any = None) -> Any:
+def read_json(path: Path, default: Any = None, *, strict: bool = False) -> Any:
+    """The parsed file, or `default` when it is missing or unreadable.
+
+    A half-written or hand-damaged file counts as missing so one bad file cannot take the app down.
+    `strict=True` raises instead, for the one caller where silently ignoring the file would lose work.
+    """
     if not path.exists():
         return default
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+        if strict:
+            raise
+        return default
 
 
 def write_json(path: Path, obj: Any) -> None:
+    """Write to a temp file beside the target, then swap it in: a kill never leaves a half-written file."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        # ensure_ascii=False keeps folder emoji readable in the file itself,
-        # not escaped to \uXXXX.
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        # ensure_ascii=False keeps folder emoji readable in the file itself, not escaped.
         json.dump(obj, f, indent=1, ensure_ascii=False)
+    os.replace(tmp, path)
