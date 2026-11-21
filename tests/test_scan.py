@@ -5,6 +5,7 @@ from PIL import Image
 
 from photosorter import platform as platform_mod
 from photosorter.config import Paths, read_json
+from photosorter.core import scan as scan_mod
 from photosorter.core.scan import find_files, find_sidecar, scan_folder
 
 
@@ -133,3 +134,75 @@ def test_slim_index_is_written_alongside_full_inventory(src, paths):
     assert set(read_json(paths.slim_file)[0]) == {"id", "kind", "bytes"}
     assert read_json(paths.inventory_file)[0]["name"] == "a.jpg"
     assert read_json(paths.source_file)["path"] == str(src)
+
+
+def test_heic_photo_gets_a_preview_and_no_error(src, paths):
+    from pillow_heif import register_heif_opener
+
+    register_heif_opener()
+    Image.new("RGB", (64, 48), "blue").save(src / "iphone.heic")
+    r = scan_folder(src, paths)[0]
+    assert r.error is None and (r.w, r.h) == (64, 48)
+    assert (paths.thumbs / "0.jpg").exists()
+
+
+def test_well_formed_sidecar_fills_taken_and_geo(src, paths):
+    make_jpeg(src / "a.jpg")
+    (src / "a.jpg.json").write_text(
+        '{"photoTakenTime": {"timestamp": "1700000000"}, "geoData": {"latitude": 12.5, "longitude": 77.25}}',
+        encoding="utf-8",
+    )
+    r = scan_folder(src, paths)[0]
+    assert r.taken == 1700000000 and r.geo == (12.5, 77.25)
+
+
+def test_malformed_sidecar_is_ignored(src, paths):
+    make_jpeg(src / "a.jpg")
+    (src / "a.jpg.json").write_text("{not json", encoding="utf-8")
+    r = scan_folder(src, paths)[0]
+    assert r.error is None and r.taken is None and r.geo is None
+
+
+def test_video_with_real_frame_gets_phash(src, paths, monkeypatch):
+    (src / "v.mp4").write_bytes(b"x")
+    monkeypatch.setattr("photosorter.core.scan._probe_video", lambda p, ps, rec: Image.new("RGB", (256, 256), "red"))
+    r = scan_folder(src, paths)[0]
+    assert r.kind == "video" and len(r.phash) == 16
+
+
+def test_video_without_a_frame_has_no_phash(src, paths, monkeypatch):
+    (src / "v.mp4").write_bytes(b"x")
+    monkeypatch.setattr("photosorter.core.scan._probe_video", lambda p, ps, rec: None)
+    assert scan_folder(src, paths)[0].phash is None
+
+
+def test_failing_placeholder_does_not_abort_the_scan(src, paths, monkeypatch):
+    (src / "bad.jpg").write_bytes(b"nope")
+    make_jpeg(src / "good.jpg")
+
+    def boom(*a):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("photosorter.core.scan._placeholder", boom)
+    recs = scan_folder(src, paths)
+    assert len(recs) == 2 and any(r.error for r in recs)
+
+
+def test_mid_scan_cancel_returns_partial_and_removes_stale_inventory(src, paths, monkeypatch):
+    for i in range(200):
+        make_jpeg(src / f"{i:03}.jpg", size=(16, 16))
+    scan_folder(src, paths)  # leaves an inventory behind
+    assert paths.inventory_file.exists()
+    cancel = threading.Event()
+    real, n = scan_mod._sha256, [0]
+
+    def counting(path):
+        n[0] += 1
+        if n[0] == 3:
+            cancel.set()
+        return real(path)
+
+    monkeypatch.setattr(scan_mod, "_sha256", counting)
+    recs = scan_folder(src, paths, cancel=cancel)
+    assert 0 < len(recs) < 200
+    assert not paths.inventory_file.exists() and not paths.source_file.exists()

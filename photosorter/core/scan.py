@@ -89,12 +89,12 @@ def _placeholder(paths: Paths, rec_id: int, colour: tuple[int, int, int]) -> Non
     _save_previews(Image.new("RGB", (_THUMB_PX, _THUMB_PX), colour), paths, rec_id)
 
 
-def _probe_video(path: Path, paths: Paths, rec: FileRecord) -> None:
-    """Fill dimensions, duration and a preview from ffmpeg; grey placeholder if it is not installed."""
+def _probe_video(path: Path, paths: Paths, rec: FileRecord) -> Image.Image | None:
+    """Fill dimensions, duration and a preview from ffmpeg. Returns the preview, or None for a grey placeholder."""
     ffprobe, ffmpeg = shutil.which("ffprobe"), shutil.which("ffmpeg")
     if not (ffprobe and ffmpeg):
         _placeholder(paths, rec.id, _GREY)
-        return
+        return None
     out = subprocess.run(
         [ffprobe, "-v", "error", "-print_format", "json", "-show_streams", "-show_format", str(path)],
         capture_output=True, check=True, timeout=60,
@@ -114,7 +114,24 @@ def _probe_video(path: Path, paths: Paths, rec: FileRecord) -> None:
         capture_output=True, check=True, timeout=60,
     ).stdout
     with Image.open(io.BytesIO(frame)) as im:  # ffmpeg autorotates, so no manual turn is needed
-        _save_previews(im, paths, rec.id)
+        return _save_previews(im, paths, rec.id)
+
+
+def _read_sidecar(path: Path, rec: FileRecord) -> None:
+    """Takeout taken-time and GPS; a missing or malformed sidecar is simply ignored."""
+    try:
+        side = find_sidecar(path)
+        if side is None:
+            return
+        with open(plat.long_path(side), encoding="utf-8") as f:
+            data = json.load(f)
+        rec.taken = int(data["photoTakenTime"]["timestamp"])
+        geo = data.get("geoData") or {}
+        lat, lon = float(geo["latitude"]), float(geo["longitude"])
+        if lat or lon:  # Takeout writes 0,0 for "no location"
+            rec.geo = (lat, lon)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _process(rec_id: int, path: Path, paths: Paths, cancel: threading.Event | None) -> FileRecord | None:
@@ -128,7 +145,9 @@ def _process(rec_id: int, path: Path, paths: Paths, cancel: threading.Event | No
         rec.bytes = plat.long_path(path).stat().st_size
         rec.sha256 = _sha256(path)
         if rec.kind == "video":
-            _probe_video(plat.long_path(path), paths, rec)
+            thumb = _probe_video(plat.long_path(path), paths, rec)
+            if thumb is not None:  # a placeholder would hash identically for every video
+                rec.phash = str(imagehash.phash(thumb))
         else:
             with Image.open(plat.long_path(path)) as im:
                 im = ImageOps.exif_transpose(im)
@@ -138,7 +157,12 @@ def _process(rec_id: int, path: Path, paths: Paths, cancel: threading.Event | No
     except Exception:  # noqa: BLE001 - recorded on the record, never re-raised
         rec.error = _BAD_FILE
         rec.phash = None
-        _placeholder(paths, rec_id, _BEIGE)
+        try:
+            _placeholder(paths, rec_id, _BEIGE)
+        except Exception:  # noqa: BLE001 - even a failed placeholder (disk full) must not abort the scan
+            pass
+    else:
+        _read_sidecar(path, rec)
     return rec
 
 
@@ -180,6 +204,9 @@ def scan_folder(
         on_progress(0, 0)
     records.sort(key=lambda r: r.id)
     if cancel is not None and cancel.is_set():
+        # the previews were wiped, so an older inventory would point at files that no longer exist
+        for stale in (paths.inventory_file, paths.slim_file, paths.source_file):
+            stale.unlink(missing_ok=True)
         return records
     write_json(paths.inventory_file, [r.to_dict() for r in records])
     write_json(paths.slim_file, [r.slim() for r in records])
