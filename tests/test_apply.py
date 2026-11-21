@@ -7,6 +7,7 @@ import pytest
 
 from photosorter.config import Paths, write_json
 from photosorter.core.apply import (
+    _remove_previous,
     apply_labels,
     check_destination,
     folder_name,
@@ -113,7 +114,7 @@ def snapshot(root: Path):
 
 
 def run(w, **kw):
-    return apply_labels(w["recs"], w["dupes"], w["labels"], w["dest"], w["paths"], **kw)
+    return apply_labels(w["recs"], w["dupes"], w["labels"], w["dest"], w["paths"], source=w["src"], **kw)
 
 
 def test_library_with_no_videos_does_not_raise(world):
@@ -128,7 +129,7 @@ def test_record_with_no_folder_for_its_kind_goes_to_review_unsorted(world):
     videos = [c for c in CATS if c.kind == "video"]
     write_json(world["paths"].categories_file, [c.to_dict() for c in videos])
     m = merge_labels(world["recs"], {}, {}, {}, videos)
-    result = apply_labels(world["recs"], [], m.labels, world["dest"], world["paths"])
+    result = apply_labels(world["recs"], [], m.labels, world["dest"], world["paths"], source=world["src"])
     assert result.copied == 5
     assert (world["dest"] / "_Review" / "unsorted" / "IMG_1.JPG").exists()
 
@@ -194,7 +195,7 @@ def test_rebuild_never_deletes_outside_dest_even_with_a_damaged_listing(world, t
 
 def test_destination_containing_originals_is_refused(world, tmp_path):
     with pytest.raises(ValueError, match="outside"):
-        apply_labels(world["recs"], [], world["labels"], tmp_path, world["paths"])
+        apply_labels(world["recs"], [], world["labels"], tmp_path, world["paths"], source=world["src"])
     assert all(r.path.exists() for r in world["recs"])
 
 
@@ -227,7 +228,7 @@ def test_deeply_nested_long_names_copy(tmp_path):
         dest = dest / ("o" * 60)
     assert len(str(dest / "Selfies" / p.name)) > 250
     r = rec(0, name=p.name, path=p)
-    assert apply_labels([r], [], {"0": "selfies"}, dest, paths).copied == 1
+    assert apply_labels([r], [], {"0": "selfies"}, dest, paths, source=tmp_path / "src").copied == 1
 
 
 def test_sorted_and_duplicates_csv_have_the_specified_columns(world):
@@ -256,8 +257,37 @@ def test_cancel_stops_copying_and_leaves_originals(world):
 
 def test_apply_refuses_a_destination_inside_the_source(world):
     with pytest.raises(ValueError, match="outside"):
-        apply_labels(world["recs"], [], world["labels"], world["src"] / "sorted", world["paths"])
+        apply_labels(world["recs"], [], world["labels"], world["src"] / "sorted", world["paths"], source=world["src"])
     assert not (world["src"] / "sorted").exists()
+
+
+def test_destination_beside_the_photos_but_inside_the_scanned_folder_is_refused(tmp_path):
+    paths = Paths(root=tmp_path / "app")
+    write_json(paths.categories_file, [c.to_dict() for c in CATS])
+    scanned = tmp_path / "pics"
+    (scanned / "Camera").mkdir(parents=True)
+    p = scanned / "Camera" / "a.jpg"
+    p.write_bytes(b"x")
+    with pytest.raises(ValueError, match="outside"):
+        apply_labels([rec(0, name=p.name, path=p)], [], {"0": "selfies"}, scanned / "sorted", paths, source=scanned)
+    assert not (scanned / "sorted").exists()
+
+
+def test_empty_library_still_checks_the_destination(tmp_path):
+    paths = Paths(root=tmp_path / "app")
+    write_json(paths.categories_file, [c.to_dict() for c in CATS])
+    with pytest.raises(ValueError, match="outside"):
+        apply_labels([], [], {}, tmp_path / "pics" / "sorted", paths, source=tmp_path / "pics")
+
+
+def test_remove_previous_skips_a_protected_file_directly(tmp_path):
+    dest = tmp_path / "out"
+    (dest / "F").mkdir(parents=True)
+    keep = dest / "F" / "x"
+    keep.write_text("kept", encoding="utf-8")
+    (dest / "sorted.csv").write_text("file,folder,original_path\nx,F,o\n", encoding="utf-8")
+    _remove_previous(dest, {keep.resolve()})
+    assert keep.read_text(encoding="utf-8") == "kept"
 
 
 def test_second_order_name_collision_never_overwrites(world):

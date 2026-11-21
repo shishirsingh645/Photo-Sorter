@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import csv
 import logging
-import os
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -143,11 +142,12 @@ def apply_labels(
     paths: Paths,
     on_progress: ProgressFn | None = None,
     cancel: Callable[[], bool] | None = None,
+    *,
+    source: Path,
 ) -> ApplyResult:
+    """`source` is the folder the user scanned: the destination must be outside it, even with no records."""
+    check_destination(source, dest)
     originals = {r.path.resolve() for r in records}
-    if originals:
-        # The source root is not passed in, so use the folder that holds every original.
-        check_destination(Path(os.path.commonpath([p.parent for p in originals])), dest)
     root = dest.resolve()
     for p in originals:
         if root == p or root in p.parents:
