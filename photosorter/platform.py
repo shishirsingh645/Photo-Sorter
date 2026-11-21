@@ -68,5 +68,10 @@ def free_space_bytes(path: Path) -> int:
 def long_path(path: Path) -> Path:
     """Windows caps paths near 260 chars; prefix absolute paths over 250 with the extended-length marker."""
     if _win() and path.is_absolute() and len(str(path)) > 250:
-        return Path("\\\\?\\" + str(path))
+        bs = chr(92)  # backslash
+        text = str(path)
+        # UNC paths take the extended form with a UNC segment, not a plain prefix.
+        if text.startswith(bs * 2):
+            return Path(bs * 2 + "?" + bs + "UNC" + bs + text[2:])
+        return Path(bs * 2 + "?" + bs + text)
     return path

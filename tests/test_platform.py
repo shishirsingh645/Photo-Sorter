@@ -1,7 +1,7 @@
 import shutil
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import pytest
 
@@ -14,6 +14,8 @@ from photosorter.platform import (
     open_folder,
     reveal_in_file_manager,
 )
+
+BS = chr(92)
 
 
 @pytest.fixture
@@ -116,9 +118,17 @@ def test_find_claude_returns_none_when_absent(monkeypatch):
 
 def test_long_path_prefixes_only_long_windows_paths(monkeypatch):
     monkeypatch.setattr(sys, "platform", "win32")
-    prefix = "\\\\?\\"
-    assert str(long_path(Path("D:/" + "a" * 300))).startswith(prefix)
-    assert not str(long_path(Path("D:/short.jpg"))).startswith(prefix)
+    root = Path(Path.cwd().anchor)  # absolute on whichever host runs the suite
+    prefix = BS * 2 + "?" + BS
+    assert str(long_path(root / ("a" * 300))).startswith(prefix)
+    assert not str(long_path(root / "short.jpg")).startswith(prefix)
+
+
+def test_long_path_uses_unc_form_for_long_unc_paths(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
+    tail = BS.join(["server", "share", "a" * 300])
+    unc = PureWindowsPath(BS * 2 + tail)
+    assert str(long_path(unc)) == BS * 2 + "?" + BS + "UNC" + BS + tail
 
 
 def test_long_path_is_identity_off_windows(monkeypatch):
@@ -129,3 +139,19 @@ def test_long_path_is_identity_off_windows(monkeypatch):
 
 def test_free_space_bytes_is_positive(tmp_path):
     assert free_space_bytes(tmp_path) > 0
+
+
+@pytest.mark.parametrize("plat,head", [("darwin", ["cp", "-c", "-p"]), ("linux", ["cp", "--reflink=auto", "-p"])])
+def test_successful_clone_skips_copy2_and_passes_src_dst_last(monkeypatch, calls, tmp_path, plat, head):
+    monkeypatch.setattr(sys, "platform", plat)
+    monkeypatch.setattr(shutil, "copy2", lambda *a, **k: pytest.fail("copy2 must not run"))
+    src, dst = tmp_path / "s.bin", tmp_path / "d.bin"
+    copy_file(src, dst)
+    assert calls[0] == head + [src.as_posix(), dst.as_posix()]
+
+
+def test_find_claude_tries_candidates_in_order(monkeypatch):
+    tried = []
+    monkeypatch.setattr(shutil, "which", lambda n: tried.append(n))
+    find_claude()
+    assert tried == ["claude", "claude.cmd", "claude.exe", "claude.ps1"]
