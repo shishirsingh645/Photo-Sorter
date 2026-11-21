@@ -34,9 +34,11 @@ from photosorter.models import Category, DupeGroup, FileRecord, ProgressFn
 #: Spec 7.2: below this share of files labelled, the sort stops instead of guessing.
 LABEL_TOLERANCE = 0.95
 
-_ROOT_INSIDE_SOURCE = (
-    "The app's own folder must be outside your photos folder, so the previews it writes are never read "
-    "back as photos. Please point --root at a folder somewhere else."
+#: True whichever folder sits inside the other, which is why it names neither as the one at fault.
+_ROOT_AND_SOURCE_OVERLAP = (
+    "Your photos folder and the app's own folder must be separate, and neither can sit inside the other, "
+    "so the previews the app writes are never read back as photos. Please point --root at a folder "
+    "somewhere else."
 )
 log = logging.getLogger(__name__)
 
@@ -170,10 +172,13 @@ def do_scan(paths: Paths, source: Path, limit: int) -> list[FileRecord]:
     try:
         check_destination(source, paths.root)
     except ValueError:
-        raise ValueError(_ROOT_INSIDE_SOURCE) from None
+        raise ValueError(_ROOT_AND_SOURCE_OVERLAP) from None
+    # Cleared BEFORE the scan, never after. A kill in between would otherwise leave the new source.json
+    # beside the old library's batches, and the next run would skip the scan and label from them. Clearing
+    # first cannot go wrong: an interrupted scan leaves source.json pointing at the old library, so the
+    # next run scans again, and the only cost of an empty cache is labelling that work once more.
+    _clear_label_cache(paths, "A different set of photos is being looked at, so earlier labels were cleared.")
     records = scan_folder(source, paths, limit, on_progress=_progress("Looking at your photos"))
-    # The inventory is new, so every cached label batch now describes other files.
-    _clear_label_cache(paths, "A different set of photos was looked at, so earlier labels were cleared.")
     photos = sum(1 for r in records if r.kind == "photo")
     unreadable = sum(1 for r in records if r.error)
     print(f"{len(records)} files: {photos} photos and {len(records) - photos} videos.")

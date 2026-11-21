@@ -215,8 +215,37 @@ def test_scan_refuses_an_app_root_inside_the_photos_folder(capsys, tmp_path):
         '[{"key": "p", "kind": "photo", "label": "P", "emoji": "x", "rule": "any"}]', encoding="utf-8"
     )
     assert main(["scan", str(source), "--root", str(inside)]) == 1
-    assert "outside your photos folder" in capsys.readouterr().out
+    assert "neither can sit inside the other" in capsys.readouterr().out
     assert not (inside / "data").exists(), "nothing may be written before the check"
+
+
+def test_photos_folder_inside_the_app_folder_is_refused_in_words_that_are_true(capsys, cli_root):
+    """The same check fires both ways round, so its sentence must not blame the wrong folder."""
+    source = camera_roll(cli_root / "roll", 2)
+    assert main(["scan", str(source), "--root", str(cli_root)]) == 1
+    out = capsys.readouterr().out
+    assert "neither can sit inside the other" in out
+    # Here the app folder is the outer one, so the one-way wording would be untrue.
+    assert "must be outside your photos folder" not in out
+
+
+def test_a_scan_that_dies_partway_has_already_dropped_the_cached_labels(tmp_path, cli_root, monkeypatch):
+    """Clearing after the scan leaves a crash window: a new source.json beside the old library's batches."""
+    import photosorter.__main__ as cli
+
+    paths = Paths(root=cli_root)
+    first = camera_roll(tmp_path / "roll-a", 3)
+    assert main(["scan", str(first), "--root", str(cli_root)]) == 0
+    paths.labels.mkdir(parents=True, exist_ok=True)
+    cached = paths.labels / "claude_00.json"
+    cached.write_text('{"0": "snaps"}', encoding="utf-8")
+
+    def die(*a, **k):
+        raise OSError("the scan was killed partway")
+
+    monkeypatch.setattr(cli, "scan_folder", die)
+    assert cli.main(["scan", str(camera_roll(tmp_path / "roll-b", 3)), "--root", str(cli_root)]) == 1
+    assert not cached.exists(), "the cache must be gone before the scan starts, not after it ends"
 
 
 def test_sort_checks_the_destination_before_doing_any_of_the_work(capsys, tmp_path, cli_root, monkeypatch):
