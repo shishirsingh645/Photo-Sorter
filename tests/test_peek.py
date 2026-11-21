@@ -1,7 +1,11 @@
+import pytest
 from PIL import Image
+from pillow_heif import register_heif_opener
 
 from photosorter.config import Paths
 from photosorter.core.peek import PREVIEW_BYTES_PER_FILE, peek_folder
+
+register_heif_opener()  # lets the test write a HEIC file
 
 
 def jpg(path, size=(200, 100)):
@@ -58,9 +62,9 @@ def test_peek_previews_are_reproducible_and_stale_ones_cleared(tmp_path):
         jpg(src / f"{i}.jpg", size=(10 + i, 10))
     paths = Paths(root=tmp_path / "app")
     first = peek_folder(src, paths, preview_count=4)
-    second = peek_folder(src, paths, preview_count=4)
-    assert first.previews == second.previews
-    assert len(list(paths.peek.iterdir())) == 4
+    assert peek_folder(src, paths, preview_count=4).previews == first.previews
+    peek_folder(src, paths, preview_count=2)
+    assert len(list(paths.peek.iterdir())) == 2
 
 
 def test_peek_survives_a_broken_image_and_empty_folder(tmp_path):
@@ -70,4 +74,24 @@ def test_peek_survives_a_broken_image_and_empty_folder(tmp_path):
     paths = Paths(root=tmp_path / "app")
     r = peek_folder(src, paths)
     assert r.photos == 1 and r.previews == []
-    assert peek_folder(tmp_path / "empty_none", paths).photos == 0
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    assert peek_folder(empty, paths).photos == 0
+
+
+def test_peek_refuses_a_missing_folder_and_a_file(tmp_path):
+    paths = Paths(root=tmp_path / "app")
+    with pytest.raises(ValueError, match="not a folder"):
+        peek_folder(tmp_path / "gone", paths)
+    f = tmp_path / "a.jpg"
+    jpg(f)
+    with pytest.raises(ValueError, match="not a folder"):
+        peek_folder(f, paths)
+
+
+def test_peek_makes_previews_of_heic_photos(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    Image.new("RGB", (200, 100), "blue").save(src / "iphone.heic", format="HEIF")
+    r = peek_folder(src, Paths(root=tmp_path / "app"))
+    assert r.photos == 1 and len(r.previews) == 1

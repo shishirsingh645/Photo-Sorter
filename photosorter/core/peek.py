@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image, ImageOps
+from pillow_heif import register_heif_opener
 
 from photosorter.config import Paths
 from photosorter.models import IMAGE_EXTS, VIDEO_EXTS
@@ -18,12 +19,7 @@ PREVIEW_BYTES_PER_FILE = 18_000
 _PREVIEW_PX = 64
 _SORTED_SUFFIX = " (sorted)"
 
-try:  # HEIC previews need this; plain formats work without it.
-    from pillow_heif import register_heif_opener
-
-    register_heif_opener()
-except ImportError:  # pragma: no cover
-    pass
+register_heif_opener()  # iPhone photos are HEIC; a required dependency, so no fallback
 
 
 @dataclass
@@ -40,6 +36,8 @@ class PeekResult:
 
 def peek_folder(source: Path, paths: Paths, preview_count: int = 60) -> PeekResult:
     """Count photos and videos in one pass. Only reads `source`; previews go to `paths.peek`."""
+    if not source.is_dir():
+        raise ValueError(f'"{source}" is not a folder we can open. Please choose a folder that exists.')
     rng = random.Random(3)  # the reference's seed, so previews are reproducible
     photos = videos = total = 0
     sample: list[Path] = []  # reservoir: never holds more than preview_count paths
