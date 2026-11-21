@@ -216,6 +216,15 @@ that got stuck.
    carries: one line of placement, the brief path, the interfaces earlier
    tasks produced, the resolved ambiguities, the report path. **Never the
    whole plan file. Never prior-task history.**
+4a. **Point every dispatch at the knowledge graph.** Each prompt gets a short
+   "Orient yourself first" block naming `graphify-out/` and the three
+   commands — `graphify query "<question>"`, `graphify path "A" "B"`,
+   `graphify explain "<node>"` — plus `graphify-out/GRAPH_REPORT.md` for the
+   god nodes and community map. A fresh agent should read the graph before
+   reading source: crawling the repo spends its context on structure one
+   query already answers. The task brief remains the authority on
+   requirements; the graph is for navigation only. Refresh the graph after a
+   batch of merges, since it reflects `main` at build time.
 5. Carry the standing rulings into every dispatch: no `Co-Authored-By`
    trailer; `def test_x(): ...` means write the real assertions (pre-flight
    R5); no `sys.platform` outside `platform.py`; explicit utf-8; `pathlib`
