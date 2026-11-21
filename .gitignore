@@ -19,3 +19,6 @@ dist/
 web/node_modules/
 
 .DS_Store
+
+# generated knowledge graph
+graphify-out/
