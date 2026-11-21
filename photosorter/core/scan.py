@@ -210,5 +210,6 @@ def scan_folder(
         return records
     write_json(paths.inventory_file, [r.to_dict() for r in records])
     write_json(paths.slim_file, [r.slim() for r in records])
-    write_json(paths.source_file, {"path": str(source), "count": len(records)})
+    # `limit` is stored so a later run can tell whether this inventory covers the request.
+    write_json(paths.source_file, {"path": str(source), "count": len(records), "limit": limit})
     return records
