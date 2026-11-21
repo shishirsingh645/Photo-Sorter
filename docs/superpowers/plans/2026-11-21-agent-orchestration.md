@@ -225,10 +225,21 @@ that got stuck.
    query already answers. The task brief remains the authority on
    requirements; the graph is for navigation only. Refresh the graph after a
    batch of merges, since it reflects `main` at build time.
-5. Carry the standing rulings into every dispatch: no `Co-Authored-By`
-   trailer; `def test_x(): ...` means write the real assertions (pre-flight
-   R5); no `sys.platform` outside `platform.py`; explicit utf-8; `pathlib`
-   only; nothing O(n²).
+   **Give the absolute path to the main checkout's `graphify-out/`.** It is
+   gitignored, and gitignored files do not propagate into worktrees — an
+   agent handed a bare relative path finds nothing and silently falls back
+   to crawling the source, which is exactly what this step exists to avoid.
+5. Carry the standing rulings into every dispatch: `def test_x(): ...` means
+   write the real assertions (pre-flight R5); no `sys.platform` outside
+   `platform.py`; explicit utf-8; `pathlib` only; nothing O(n²).
+5a. **Commit conventions, in every dispatch.** Three rules, all standing:
+   no `Co-Authored-By` or any AI attribution; commit at every major step
+   rather than batching; and write a detailed body naming each file touched
+   and what changed in it. A bare subject line is not acceptable — `git log`
+   alone should say what a commit did without anyone having to diff it.
+   Format: short imperative subject, blank line, one bullet per file, e.g.
+   "`core/scan.py` — record `limit` in source.json so the rescan-skip
+   decision can compare it".
 6. Collect reports. Merge branches one at a time, running the full suite
    after each. A merge that reddens the suite is reverted, not patched
    forward.
