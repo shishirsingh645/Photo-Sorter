@@ -41,7 +41,7 @@ def tag_text(r: FileRecord) -> str:
     return str(r.id)
 
 
-def _font() -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+def tag_font() -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     for candidate in _FONT_CANDIDATES:
         try:
             return ImageFont.truetype(candidate, FONT_PX)
@@ -50,22 +50,33 @@ def _font() -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     return ImageFont.load_default()
 
 
-def _render_sheet(recs: Sequence[FileRecord], thumbs: Path, font) -> Image.Image:
+def draw_tag(draw: ImageDraw.ImageDraw, x: int, y: int, text: str, font) -> None:
+    """Yellow text on a black box, top-left corner at (x, y)."""
+    left, top, right, bottom = draw.textbbox((0, 0), text, font=font)
+    draw.rectangle((x, y, x + (right - left) + 6, y + (bottom - top) + 6), fill=TAG_BG)
+    draw.text((x + 3 - left, y + 3 - top), text, font=font, fill=TAG_FILL)
+
+
+def _load_thumb(path: Path) -> Image.Image | None:
+    try:
+        with Image.open(path) as src:
+            thumb = src.convert("RGB")
+    except OSError:  # missing, empty or truncated: the tile stays blank, its tag is still drawn
+        return None
+    thumb.thumbnail((THUMB, THUMB), Image.Resampling.LANCZOS)
+    return thumb
+
+
+def render_sheet(recs: Sequence[FileRecord], thumbs: Path, font) -> Image.Image:
     sheet = Image.new("RGB", (COLS * CELL, ROWS * CELL), TAG_BG)
     draw = ImageDraw.Draw(sheet)
     for slot, r in enumerate(recs):
         x0 = (slot % COLS) * CELL + INSET
         y0 = (slot // COLS) * CELL + INSET
-        thumb_path = thumbs / f"{r.id}.jpg"
-        if thumb_path.exists():  # a file scan could not read leaves its tile blank, still tagged
-            with Image.open(thumb_path) as src:
-                thumb = src.convert("RGB")
-            thumb.thumbnail((THUMB, THUMB), Image.Resampling.LANCZOS)
+        thumb = _load_thumb(thumbs / f"{r.id}.jpg")
+        if thumb is not None:
             sheet.paste(thumb, (x0 + (THUMB - thumb.width) // 2, y0 + (THUMB - thumb.height) // 2))
-        text = tag_text(r)
-        left, top, right, bottom = draw.textbbox((0, 0), text, font=font)
-        draw.rectangle((x0, y0, x0 + (right - left) + 6, y0 + (bottom - top) + 6), fill=TAG_BG)
-        draw.text((x0 + 3 - left, y0 + 3 - top), text, font=font, fill=TAG_FILL)
+        draw_tag(draw, x0, y0, tag_text(r), font)
     return sheet
 
 
@@ -76,10 +87,13 @@ def build_sheets(records: Sequence[FileRecord], paths: Paths, sample: bool = Fal
     else:
         out = paths.sheets
     out.mkdir(parents=True, exist_ok=True)
-    font = _font()
+    # A smaller rerun must not leave old sheets behind: the labeller reads every sheet_*.jpg it finds.
+    for old in out.glob("sheet_*.jpg"):
+        old.unlink()
+    font = tag_font()
     written = []
     for n, start in enumerate(range(0, len(records), PER_SHEET)):
-        sheet = _render_sheet(records[start : start + PER_SHEET], paths.thumbs, font)
+        sheet = render_sheet(records[start : start + PER_SHEET], paths.thumbs, font)
         target = out / f"sheet_{n:05d}.jpg"
         sheet.save(target, quality=90)
         sheet.close()  # one sheet in memory at a time, however large the library
