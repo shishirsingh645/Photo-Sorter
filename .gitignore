@@ -1,0 +1,18 @@
+# your photos' data never goes in git
+data/
+demo/
+peek/
+work/
+.env
+
+# python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# node — web/dist is committed on purpose, so end users need only Python
+web/node_modules/
+
+.DS_Store
