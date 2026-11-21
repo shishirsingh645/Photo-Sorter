@@ -7,6 +7,8 @@ folder. A rebuild deletes only the files its own previous sorted.csv lists.
 from __future__ import annotations
 
 import csv
+import logging
+import os
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -24,6 +26,12 @@ UNSORTED_DIR = "unsorted"
 SORTED_CSV = "sorted.csv"
 DUPES_CSV = "duplicates.csv"
 
+_OUTSIDE = (
+    "The sorted folder must be outside your photos folder, so your originals are never touched. "
+    "Please choose a different folder."
+)
+log = logging.getLogger(__name__)
+
 
 @dataclass
 class MergeResult:
@@ -37,6 +45,7 @@ class ApplyResult:
     counts: dict[str, int]
     copied: int
     dest: Path
+    unsorted: int = 0  # files whose label matched no folder
 
 
 def folder_name(cat: Category) -> str:
@@ -46,10 +55,7 @@ def folder_name(cat: Category) -> str:
 def check_destination(source: Path, dest: Path) -> None:
     src, dst = source.resolve(), dest.resolve()
     if dst == src or src in dst.parents or dst in src.parents:
-        raise ValueError(
-            "The sorted folder must be outside your photos folder, so your originals are never touched. "
-            "Please choose a different folder."
-        )
+        raise ValueError(_OUTSIDE)
 
 
 def merge_labels(
@@ -139,13 +145,13 @@ def apply_labels(
     cancel: Callable[[], bool] | None = None,
 ) -> ApplyResult:
     originals = {r.path.resolve() for r in records}
+    if originals:
+        # The source root is not passed in, so use the folder that holds every original.
+        check_destination(Path(os.path.commonpath([p.parent for p in originals])), dest)
     root = dest.resolve()
     for p in originals:
         if root == p or root in p.parents:
-            raise ValueError(
-                "The sorted folder must be outside your photos folder, so your originals are never touched. "
-                "Please choose a different folder."
-            )
+            raise ValueError(_OUTSIDE)
     names = {c.key: folder_name(c) for c in load_categories(paths)}
     by_id = {r.id: r for r in records}
     dupe_of: dict[int, DupeGroup] = {i: g for g in dupes for i in g.dupes if i in by_id and g.keep in by_id}
@@ -155,7 +161,7 @@ def apply_labels(
 
     used: set[tuple[str, str]] = set()
     counts: dict[str, int] = {}
-    copied = 0
+    copied = unsorted = 0
     progress = _Throttle(on_progress, len(records))
     review = f"{REVIEW_DIR}/{DUPES_DIR}"
     with (
@@ -172,10 +178,14 @@ def apply_labels(
             if group:
                 folder = review
             else:
-                folder = names.get(labels.get(str(r.id), ""), f"{REVIEW_DIR}/{UNSORTED_DIR}")
-            name = r.name
-            if (folder, name.lower()) in used or long_path(dest / folder / name).exists():
-                name = f"{Path(r.name).stem}__{r.id}{Path(r.name).suffix}"
+                folder = names.get(labels.get(str(r.id), ""))
+                if folder is None:
+                    folder = f"{REVIEW_DIR}/{UNSORTED_DIR}"
+                    unsorted += 1
+            name, stem = r.name, Path(r.name).stem
+            while (folder, name.lower()) in used or long_path(dest / folder / name).exists():
+                name = f"{stem}__{r.id}{Path(r.name).suffix}"
+                stem += "_"  # still taken (a user's file, or a file really named that): try again
             used.add((folder, name.lower()))
             sw.writerow([name, folder, str(r.path)])  # listed before copying so a crash cannot orphan a copy
             sf.flush()
@@ -188,4 +198,6 @@ def apply_labels(
                 dw.writerow([name, kept.name, group.type, str(r.path), str(kept.path)])
             progress.tick(n)
     progress.finish(copied)
-    return ApplyResult(counts=counts, copied=copied, dest=dest)
+    if unsorted:
+        log.warning("%d files matched no folder and were put in %s/%s", unsorted, REVIEW_DIR, UNSORTED_DIR)
+    return ApplyResult(counts=counts, copied=copied, dest=dest, unsorted=unsorted)

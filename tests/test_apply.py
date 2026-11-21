@@ -1,4 +1,6 @@
 import csv
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -250,3 +252,84 @@ def test_progress_ends_with_a_final_event(world):
 def test_cancel_stops_copying_and_leaves_originals(world):
     result = run(world, cancel=lambda: True)
     assert result.copied == 0 and all(r.path.exists() for r in world["recs"])
+
+
+def test_apply_refuses_a_destination_inside_the_source(world):
+    with pytest.raises(ValueError, match="outside"):
+        apply_labels(world["recs"], [], world["labels"], world["src"] / "sorted", world["paths"])
+    assert not (world["src"] / "sorted").exists()
+
+
+def test_second_order_name_collision_never_overwrites(world):
+    selfies = world["dest"] / "Selfies"
+    selfies.mkdir(parents=True)
+    (selfies / "IMG_1__1.JPG").write_bytes(b"users own")  # where record 1 would first be renamed to
+    other = world["src"] / "b" / "IMG_1__1.JPG"  # and a real file that is genuinely called that
+    other.write_bytes(b"genuine")
+    world["recs"].append(rec(5, name=other.name, path=other, ext=".JPG"))
+    world["labels"]["5"] = "selfies"
+    result = run(world)
+    assert result.copied == 6
+    assert (selfies / "IMG_1__1.JPG").read_bytes() == b"users own"
+    assert sorted(p.read_bytes() for p in selfies.iterdir()) == sorted([b"users own", b"data0", b"data1", b"genuine"])
+    with open(world["dest"] / "sorted.csv", encoding="utf-8", newline="") as f:
+        listed = [(r["folder"], r["file"].lower()) for r in csv.DictReader(f)]
+    assert len(listed) == len(set(listed)) == 6
+
+
+def test_label_matching_no_folder_is_counted_not_silent(world, caplog):
+    world["labels"]["4"] = "deleted-folder"
+    with caplog.at_level("WARNING"):
+        result = run(world)
+    assert result.unsorted == 1 and "matched no folder" in caplog.text
+
+
+def _damage_listing(world, *rows):
+    run(world)
+    with open(world["dest"] / "sorted.csv", "a", encoding="utf-8", newline="") as f:
+        csv.writer(f).writerows(rows)
+
+
+def test_rebuild_ignores_an_absolute_path_row(world, tmp_path):
+    victim = tmp_path / "victim.txt"
+    victim.write_text("precious", encoding="utf-8")
+    _damage_listing(world, [str(victim), "", "x"], [victim.name, str(tmp_path), "x"])
+    run(world)
+    assert victim.read_text(encoding="utf-8") == "precious"
+
+
+def _symlink(link, target, is_dir):
+    try:
+        link.symlink_to(target, target_is_directory=is_dir)
+    except (OSError, NotImplementedError):
+        pytest.skip("this system does not allow creating symbolic links without extra rights")
+
+
+def _folder_link(link, target):
+    if os.name == "nt":  # a junction needs no special rights, unlike a symbolic link
+        r = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], capture_output=True)
+        if r.returncode != 0:
+            pytest.skip("could not create a folder junction")
+    else:
+        _symlink(link, target, True)
+
+
+def test_rebuild_does_not_follow_a_folder_link_out_of_the_destination(world, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    victim = outside / "victim.txt"
+    victim.write_text("precious", encoding="utf-8")
+    run(world)
+    _folder_link(world["dest"] / "Linked", outside)
+    _damage_listing(world, [victim.name, "Linked", "x"])
+    run(world)
+    assert victim.read_text(encoding="utf-8") == "precious"
+
+
+def test_rebuild_does_not_delete_an_original_through_a_file_link(world):
+    original = world["recs"][3].path
+    run(world)
+    _symlink(world["dest"] / "Pets" / "link.jpg", original, False)
+    _damage_listing(world, ["link.jpg", "Pets", "x"])
+    run(world)
+    assert original.read_bytes() == b"data3"
