@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from photosorter.config import Paths, read_json
+from photosorter.config import Paths, read_json, write_json
 from photosorter.core.labelers import claude as mod
 from photosorter.core.labelers.base import LabelerUnavailable
 from photosorter.core.labelers.claude import ClaudeLabeler, build_prompt, parse_label_response
@@ -24,6 +24,12 @@ def rec(i):
     return FileRecord(
         id=i, path=Path(f"/o/{i}.jpg"), name=f"{i}.jpg", ext=".jpg", kind="photo", bytes=1, sha256="0" * 64
     )
+
+
+@pytest.fixture(autouse=True)
+def clean_env(monkeypatch):
+    monkeypatch.delenv("CLAUDE_MODEL", raising=False)
+    monkeypatch.delenv("CLAUDE_WORKERS", raising=False)
 
 
 @pytest.fixture
@@ -95,6 +101,7 @@ def test_cli_invocation_is_exact(stub, recs, paths):
         "--setting-sources", "project", "--no-session-persistence", "--output-format", "json",
     ]  # fmt: skip
     assert kw["cwd"] == paths.work and kw["timeout"] == 900
+    assert kw["errors"] == "replace"  # undecodable output must not abort the run
 
 
 def test_batch_accepted_at_ninety_percent_coverage(stub, recs, paths):
@@ -169,6 +176,89 @@ def test_progress_is_throttled_and_ends_with_a_final_event(stub, paths):
     events = []
     ClaudeLabeler().label(recs, CATS, paths, on_progress=lambda d, t: events.append((d, t)))
     assert events[-1] == (900, 900) and len(events) < 10
+
+
+def good_cache(paths, n, ids, value="food"):
+    write_json(paths.labels / f"claude_{n:02d}.json", {i: value for i in ids})
+
+
+def test_cache_below_ninety_percent_is_rerun(stub, recs, paths):
+    good_cache(paths, 0, [str(i) for i in range(80)])
+    out = ClaudeLabeler().label(recs, CATS, paths)
+    assert stub.per_batch[0] == 1 and len(out) == 180
+    assert len(read_json(paths.labels / "claude_00.json")) == 90
+
+
+def test_corrupt_cache_is_a_miss_not_an_abort(stub, recs, paths):
+    (paths.labels).mkdir(parents=True)
+    (paths.labels / "claude_00.json").write_text('{"0": "foo', encoding="utf-8")
+    out = ClaudeLabeler().label(recs, CATS, paths)
+    assert len(out) == 180 and len(read_json(paths.labels / "claude_00.json")) == 90
+    assert not list(paths.labels.glob("*.tmp"))
+
+
+def test_cache_with_foreign_ids_is_filtered_and_still_skipped(stub, recs, paths):
+    good_cache(paths, 0, [str(i) for i in range(90)] + ["9999", "8888"])
+    good_cache(paths, 1, [str(i) for i in range(90, 180)])
+    out = ClaudeLabeler().label(recs, CATS, paths)
+    assert stub.calls == 0 and set(out) == {str(i) for i in range(180)}
+
+
+def test_resume_after_partial_failure_reruns_only_the_failed_batch(stub, recs, paths):
+    stub.answer = lambda wanted, n: [] if wanted[0] == "0" else wanted
+    ClaudeLabeler().label(recs, CATS, paths)
+    stub.answer = lambda wanted, n: wanted
+    stub.per_batch.clear()
+    calls = stub.calls
+    out = ClaudeLabeler().label(recs, CATS, paths)
+    assert stub.calls == calls + 1 and stub.per_batch == {0: 1} and len(out) == 180
+    assert not (paths.work / "claude_failed_00.txt").exists()
+
+
+def test_save_failure_is_reported_as_such_not_as_a_start_failure(stub, recs, paths, monkeypatch):
+    def nope(*a, **k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(mod, "write_json", nope)
+    ClaudeLabeler().label(recs, CATS, paths)
+    text = (paths.work / "claude_failed_00.txt").read_text(encoding="utf-8")
+    assert "could not be saved" in text and "disk full" in text
+
+
+def test_circuit_breaker_stops_after_three_batches_fail_the_same_way(stub, paths):
+    recs = [rec(i) for i in range(900)]  # 10 batches
+    stub.recs = recs
+    stub.answer = lambda wanted, n: []
+    with pytest.raises(LabelerUnavailable, match="signed in"):
+        ClaudeLabeler(workers=1).label(recs, CATS, paths)
+    assert stub.calls == 12  # 3 batches x 4 attempts, not 40
+
+
+def test_a_success_resets_the_breaker(stub, paths):
+    recs = [rec(i) for i in range(900)]
+    stub.recs = recs
+    stub.answer = lambda wanted, n: wanted if int(wanted[0]) // 90 % 3 == 2 else []  # fail, fail, ok, ...
+    out = ClaudeLabeler(workers=1).label(recs, CATS, paths)
+    assert len(out) == 270
+
+
+def test_explicit_arguments_beat_environment(monkeypatch):
+    monkeypatch.setenv("CLAUDE_WORKERS", "2")
+    monkeypatch.setenv("CLAUDE_MODEL", "opus")
+    lab = ClaudeLabeler(model="haiku", workers=7)
+    assert (lab.workers, lab.model) == (7, "haiku")
+
+
+@pytest.mark.parametrize("bad", ["abc", "0", "-2"])
+def test_bad_worker_setting_is_explained_in_plain_words(monkeypatch, bad):
+    monkeypatch.setenv("CLAUDE_WORKERS", bad)
+    with pytest.raises(LabelerUnavailable, match="CLAUDE_WORKERS"):
+        ClaudeLabeler()
+
+
+def test_defaults_without_environment():
+    lab = ClaudeLabeler()
+    assert (lab.workers, lab.model) == (4, "sonnet")
 
 
 def test_env_overrides_workers_and_model(monkeypatch):

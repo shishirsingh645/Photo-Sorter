@@ -26,6 +26,22 @@ ATTEMPTS = 4
 TIMEOUT_SECONDS = 900
 #: Seconds between progress events; the final one is always sent.
 PROGRESS_INTERVAL = 0.5
+#: Batches failing in a row for the same reason mean sign-in or quota, not a bad batch. Three costs about
+#: 12 doomed calls and 2.5 minutes of waiting, yet one or two unlucky batches never trip it.
+BREAKER_STREAK = 3
+
+
+def _env_int(name: str, fallback: int) -> int:
+    raw = os.environ.get(name)
+    if not raw:
+        return fallback
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value < 1:
+        raise LabelerUnavailable(f"The setting {name} must be a whole number of 1 or more, but it is {raw!r}.")
+    return value
 
 
 def build_prompt(cats: list[Category], sheet_paths: Sequence[Path]) -> str:
@@ -70,9 +86,10 @@ def parse_label_response(stdout: str, wanted: list[str]) -> dict[str, str]:
 class ClaudeLabeler:
     name = "claude"
 
-    def __init__(self, model: str = "sonnet", workers: int = 4, sheets_per_batch: int = 3):
-        self.model = os.environ.get("CLAUDE_MODEL") or model
-        self.workers = int(os.environ.get("CLAUDE_WORKERS") or workers)
+    def __init__(self, model: str | None = None, workers: int | None = None, sheets_per_batch: int = 3):
+        # Precedence: explicit argument, then environment variable, then default.
+        self.model = model or os.environ.get("CLAUDE_MODEL") or "sonnet"
+        self.workers = workers if workers is not None else _env_int("CLAUDE_WORKERS", 4)
         self.sheets_per_batch = sheets_per_batch
 
     def label(
@@ -95,14 +112,25 @@ class ClaudeLabeler:
         total, done, last_emit = len(records), 0, 0.0
         lock = threading.Lock()
         labels: dict[str, str] = {}
+        streak: list = [None, 0]  # [reason kind, consecutive batches that failed with it]
+        tripped: list[str] = []
 
         def run(batch: tuple[int, list[Path]]) -> None:
             nonlocal done, last_emit
             n, batch_sheets = batch
             wanted = ids_in_sheet_range(records, n * size, n * size + len(batch_sheets) - 1)
-            got = self._run_batch(claude, n, batch_sheets, wanted, cats, paths, cancel)
+            if tripped:
+                return
+            got, failure = self._run_batch(claude, n, batch_sheets, wanted, cats, paths, cancel)
             with lock:
                 labels.update(got)
+                if failure is None:
+                    streak[:] = [None, 0]
+                else:
+                    kind, reason = failure
+                    streak[:] = [kind, streak[1] + 1 if streak[0] == kind else 1]
+                    if streak[1] >= BREAKER_STREAK and not tripped:
+                        tripped.append(reason)
                 done += len(wanted)
                 now = time.monotonic()
                 if on_progress and done < total and now - last_emit >= PROGRESS_INTERVAL:
@@ -111,45 +139,64 @@ class ClaudeLabeler:
 
         with ThreadPoolExecutor(self.workers) as pool:
             list(pool.map(run, batches))
+        if tripped:
+            raise LabelerUnavailable(
+                f"Claude Code failed on {BREAKER_STREAK} batches in a row, so labelling was stopped to save your "
+                f"plan's usage. The last problem was: {tripped[0]} Check that you are signed in (run 'claude' in "
+                "a terminal) and that your plan has usage left, then run again. Finished work is kept."
+            )
         if on_progress:
             on_progress(done, total)
         return labels
 
-    def _run_batch(self, claude, n, batch_sheets, wanted, cats, paths, cancel) -> dict[str, str]:
+    def _run_batch(self, claude, n, batch_sheets, wanted, cats, paths, cancel):
+        """Returns (labels, failure); failure is None on success or cancel, else (kind, reason)."""
         cache = paths.labels / f"claude_{n:02d}.json"
-        need = ACCEPT_RATIO * len(wanted)
-        cached = read_json(cache)
-        if isinstance(cached, dict):
-            keep = set(wanted)
-            cached = {k: v for k, v in cached.items() if k in keep}
-            if len(cached) >= need:
-                return cached
-        prompt = build_prompt(cats, batch_sheets)
         failed = paths.work / f"claude_failed_{n:02d}.txt"
+        keep = set(wanted)
+        try:
+            cached = read_json(cache)
+        except (ValueError, OSError):  # killed mid-write: treat as not cached
+            cached = None
+        if isinstance(cached, dict):
+            cached = {k: v for k, v in cached.items() if k in keep}
+            if len(cached) * 10 >= 9 * len(wanted):
+                return cached, None
+        prompt = build_prompt(cats, batch_sheets)
+        kind = reason = ""
         for attempt in range(1, ATTEMPTS + 1):
             if cancel is not None and cancel.is_set():
-                return {}
+                return {}, None
             try:
                 proc = subprocess.run(
                     [claude, "-p", prompt, "--model", self.model, "--allowedTools", "Read", "--strict-mcp-config",
                      "--setting-sources", "project", "--no-session-persistence", "--output-format", "json"],
-                    capture_output=True, text=True, encoding="utf-8", cwd=paths.work, timeout=TIMEOUT_SECONDS,
+                    capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=paths.work,
+                    timeout=TIMEOUT_SECONDS,
                 )  # fmt: skip
-                if proc.returncode != 0:
-                    reason = f"Claude Code stopped with an error: {(proc.stderr or '').strip()[:500]}"
-                else:
-                    got = parse_label_response(proc.stdout, wanted)
-                    if len(got) >= need:
-                        write_json(cache, got)
-                        failed.unlink(missing_ok=True)
-                        return got
-                    reason = f"Claude labelled {len(got)} of {len(wanted)} files; at least 90% are needed."
             except subprocess.TimeoutExpired:
-                reason = "Claude Code took too long to answer."
+                kind, reason = "timeout", "Claude Code took too long to answer."
             except OSError as e:
-                reason = f"Claude Code could not be started: {e}"
+                kind, reason = "start", f"Claude Code could not be started: {e}"
+            else:
+                got = parse_label_response(proc.stdout, wanted)
+                if proc.returncode != 0:
+                    kind, reason = "error", f"Claude Code stopped with an error: {(proc.stderr or '').strip()[:500]}"
+                elif len(got) * 10 < 9 * len(wanted):
+                    kind = "coverage"
+                    reason = f"Claude labelled {len(got)} of {len(wanted)} files; at least 90% are needed."
+                else:
+                    try:
+                        tmp = cache.with_name(cache.name + ".tmp")
+                        write_json(tmp, got)
+                        os.replace(tmp, cache)  # atomic: a kill never leaves a half-written cache
+                    except OSError as e:
+                        kind, reason = "save", f"The results could not be saved in the work folder: {e}"
+                    else:
+                        failed.unlink(missing_ok=True)
+                        return got, None
             paths.work.mkdir(parents=True, exist_ok=True)
             failed.write_text(f"Attempt {attempt} of {ATTEMPTS} failed.\n{reason}\n", encoding="utf-8")
             if attempt < ATTEMPTS:
                 time.sleep(8 * attempt)
-        return {}
+        return {}, (kind, reason)
