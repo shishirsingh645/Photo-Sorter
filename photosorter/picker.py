@@ -16,7 +16,8 @@ def choose_folder(prompt: str) -> Path | None:
             encoding="utf-8",
             timeout=TIMEOUT_SECONDS,
         )
-    except subprocess.TimeoutExpired:
+    except (subprocess.TimeoutExpired, OSError, UnicodeDecodeError):
+        # Undecodable output means the path is unknown, so report no choice rather than a mangled path.
         return None
     if result.returncode != 0 or not result.stdout.strip():
         return None
