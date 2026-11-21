@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import platform as _platform
+from typing import Protocol
 
 from fastapi import APIRouter, Request
 
@@ -11,12 +11,23 @@ from photosorter.config import Paths, read_json
 from photosorter.core.categories import load_categories
 from photosorter.core.labelers import find_jev_key
 from photosorter.picker import picker_available
-from photosorter.platform import file_manager_name, find_claude
+from photosorter.platform import file_manager_name, find_claude, platform_name
 
 router = APIRouter()
 
 
-def build_state(paths: Paths, runner) -> AppState:
+class StateSource(Protocol):
+    """What /api/state needs from the job runner."""
+
+    def state(self) -> JobState: ...
+
+
+def _only(value, kind: type):
+    """`value` if it is the right type, else None: a hand-edited source.json must not 500 the page."""
+    return value if isinstance(value, kind) else None
+
+
+def build_state(paths: Paths, runner: StateSource | None) -> AppState:
     # The slim index (id, kind, bytes), never the full inventory, which is ~40MB at 100k files.
     slim = read_json(paths.slim_file, [])
     source = read_json(paths.source_file, {})
@@ -25,15 +36,23 @@ def build_state(paths: Paths, runner) -> AppState:
     available, reason = picker_available()
     try:
         cats = load_categories(paths)
-    except FileNotFoundError:
+    except (ValueError, KeyError, TypeError):  # damaged or hand-edited categories.json: show none, do not 500
         cats = []
+    if not isinstance(slim, list):
+        slim = []
+    try:
+        job = runner.state() if runner is not None else JobState()
+    except Exception:  # the fallback endpoint must stay up even when the runner is not
+        job = JobState()
     return AppState(
         categories=[CategoryOut(**c.to_dict()) for c in cats],
-        source=source.get("path"),
-        limit=source.get("limit"),
-        sorted=source.get("sorted"),
+        source=_only(source.get("path"), str),
+        limit=_only(source.get("limit"), int),
+        sorted=_only(source.get("sorted"), str),
         files=len(slim),
-        bytes=sum(r.get("bytes", 0) for r in slim),
+        bytes=sum(
+            r["bytes"] for r in slim if isinstance(r, dict) and isinstance(r.get("bytes"), int | float)
+        ),
         steps=StepFlags(
             scan=paths.inventory_file.exists() and paths.source_file.exists(),
             dupes=paths.dupes_file.exists(),
@@ -44,8 +63,8 @@ def build_state(paths: Paths, runner) -> AppState:
         jev_key=find_jev_key(paths) is not None,
         claude_cli=find_claude() is not None,
         overrides=len(overrides) if isinstance(overrides, dict) else 0,
-        job=runner.state() if runner is not None else JobState(),
-        platform=_platform.system().lower(),
+        job=job,
+        platform=platform_name(),
         file_manager=file_manager_name(),
         picker_available=available,
         picker_reason=reason,

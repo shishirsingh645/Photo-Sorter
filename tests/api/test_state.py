@@ -1,3 +1,5 @@
+import pytest
+
 from photosorter.config import write_json
 
 
@@ -53,6 +55,54 @@ def test_state_names_the_file_manager_and_picker(client, monkeypatch):
     assert isinstance(s["platform"], str) and s["platform"]
 
 
-def test_state_survives_a_missing_categories_file(client, paths):
-    paths.categories_file.unlink()
-    assert client.get("/api/state").json()["categories"] == []
+
+
+@pytest.mark.parametrize("raw", [b"{not json", b'{"a": 1}', b'[{"key": "x"}]', b"\xff\xfe\x00bad"])
+def test_state_survives_a_damaged_categories_file(client, paths, raw):
+    paths.categories_file.write_bytes(raw)
+    r = client.get("/api/state")
+    assert r.status_code == 200 and r.json()["categories"] == []
+
+
+@pytest.mark.parametrize(
+    "slim", ["{not json", '{"a": 1}', '["x", 3]', '[{"bytes": "9"}, {"bytes": null}, {"bytes": 4}]']
+)
+def test_state_survives_a_damaged_slim_index(client, paths, slim):
+    paths.slim_file.parent.mkdir(parents=True, exist_ok=True)
+    paths.slim_file.write_text(slim, encoding="utf-8")
+    r = client.get("/api/state")
+    assert r.status_code == 200
+    assert r.json()["bytes"] in (0, 4)
+
+
+def test_state_survives_a_damaged_source_file(client, paths):
+    paths.source_file.parent.mkdir(parents=True, exist_ok=True)
+    paths.source_file.write_text('{"path": 5, "limit": "x"}', encoding="utf-8")
+    s = client.get("/api/state").json()
+    assert s["source"] is None and s["limit"] is None
+
+
+def test_a_raising_runner_does_not_take_state_down(paths):
+    from fastapi.testclient import TestClient
+
+    from photosorter.api.app import create_app
+
+    class Boom:
+        def state(self):
+            raise ValueError("band_keys blew up")
+
+    c = TestClient(create_app(paths, runner=Boom()), base_url="http://127.0.0.1:8765")
+    r = c.get("/api/state")
+    assert r.status_code == 200 and r.json()["job"]["running"] is False
+
+
+def test_platform_is_one_of_the_three_names_the_page_branches_on(client, monkeypatch):
+    import sys
+
+    from photosorter.platform import platform_name
+
+    for real, name in (("win32", "windows"), ("darwin", "darwin"), ("linux", "linux"), ("freebsd14", "linux")):
+        monkeypatch.setattr(sys, "platform", real)
+        assert platform_name() == name
+    monkeypatch.undo()
+    assert client.get("/api/state").json()["platform"] in {"windows", "darwin", "linux"}

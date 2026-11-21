@@ -22,4 +22,4 @@ def paths(tmp_path: Path) -> Paths:
 
 @pytest.fixture
 def client(paths: Paths) -> TestClient:
-    return TestClient(create_app(paths))
+    return TestClient(create_app(paths), base_url="http://127.0.0.1:8765")

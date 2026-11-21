@@ -14,9 +14,14 @@ def find_jev_key(paths: Paths) -> str | None:
         if os.environ.get(name):
             return os.environ[name]
     env_file: Path = paths.root / ".env"
-    if env_file.is_file():
-        for line in env_file.read_text(encoding="utf-8").splitlines():
-            name, _, value = line.partition("=")
-            if name.strip() in _JEV_KEY_NAMES and value.strip().strip("\"'"):
-                return value.strip().strip("\"'")
+    try:
+        # utf-8-sig: Notepad saves a BOM, which would otherwise glue itself to the first name.
+        text = env_file.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError):  # missing, unreadable or not text: no key, never an error
+        return None
+    for line in text.splitlines():
+        name, _, value = line.removeprefix("export ").partition("=")
+        # shortcut: no inline `# comment` stripping, since a # may be part of a real key; add it if one is reported
+        if name.strip() in _JEV_KEY_NAMES and value.strip().strip("\"'"):
+            return value.strip().strip("\"'")
     return None

@@ -9,6 +9,11 @@ def _win() -> bool:
     return sys.platform == "win32"
 
 
+def platform_name() -> str:
+    """The OS name the API reports and the page branches on: "windows", "darwin" or "linux"."""
+    return "windows" if _win() else "darwin" if sys.platform == "darwin" else "linux"
+
+
 def copy_file(src: Path, dst: Path) -> None:
     """Clone where the OS supports it; any clone failure falls back to copy2 (never loses a file)."""
     if sys.platform == "darwin":

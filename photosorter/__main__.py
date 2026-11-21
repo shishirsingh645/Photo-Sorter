@@ -217,11 +217,11 @@ def do_apply(paths: Paths, records: list[FileRecord], dest: Path) -> None:
     merged = merge_labels(
         records,
         labels,
-        read_json(paths.jev_file, default={}) or {},
-        read_json(paths.overrides_file, default={}) or {},
+        read_json(paths.jev_file, default={}, strict=True) or {},
+        read_json(paths.overrides_file, default={}, strict=True) or {},
         _cats(paths),
     )
-    dupes = [DupeGroup.from_dict(d) for d in read_json(paths.dupes_file, default=[]) or []]
+    dupes = [DupeGroup.from_dict(d) for d in read_json(paths.dupes_file, default=[], strict=True) or []]
     result = apply_labels(
         records,
         dupes,

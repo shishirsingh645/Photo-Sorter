@@ -266,3 +266,14 @@ def test_an_unusable_folder_is_reported_in_plain_words(capsys, tmp_path, cli_roo
     out = capsys.readouterr().out
     assert "folder" in out.lower()
     assert "Traceback" not in out
+
+
+def test_apply_refuses_to_run_past_a_damaged_overrides_file(capsys, tmp_path, cli_root):
+    # read_json treats damage as missing elsewhere, but here that would silently drop the user's hand moves
+    camera_roll(tmp_path / "roll", 2)
+    assert main(["scan", str(tmp_path / "roll"), "--root", str(cli_root)]) == 0
+    assert main(["label", "--labeler", "stub", "--root", str(cli_root)]) == 0
+    (cli_root / "work").mkdir(exist_ok=True)
+    (cli_root / "work" / "overrides.json").write_text("{half", encoding="utf-8")
+    assert main(["apply", str(tmp_path / "out"), "--root", str(cli_root)]) == 1
+    assert not (tmp_path / "out").exists()
