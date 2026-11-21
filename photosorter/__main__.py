@@ -13,6 +13,7 @@ are caught and shown as the words they carry.
 from __future__ import annotations
 
 import argparse
+import logging
 import shutil
 import sys
 import threading
@@ -20,7 +21,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from photosorter.config import Paths, read_json, write_json
-from photosorter.core.apply import apply_labels, merge_labels
+from photosorter.core.apply import apply_labels, check_destination, merge_labels
 from photosorter.core.categories import categories_fingerprint, load_categories, validate_categories
 from photosorter.core.demo import build_demo
 from photosorter.core.dupes import find_duplicates
@@ -32,6 +33,12 @@ from photosorter.models import Category, DupeGroup, FileRecord, ProgressFn
 
 #: Spec 7.2: below this share of files labelled, the sort stops instead of guessing.
 LABEL_TOLERANCE = 0.95
+
+_ROOT_INSIDE_SOURCE = (
+    "The app's own folder must be outside your photos folder, so the previews it writes are never read "
+    "back as photos. Please point --root at a folder somewhere else."
+)
+log = logging.getLogger(__name__)
 
 
 class StubLabeler:
@@ -122,16 +129,29 @@ def _scanned_source(paths: Paths) -> Path:
     return Path(saved["path"])
 
 
+def _clear_label_cache(paths: Paths, reason: str) -> None:
+    """Throw away every cached label batch, and the merged labels built from them.
+
+    A batch is cached under its batch number and reused when nearly all the ids it was asked
+    about are in it, while an id is only a file's position in the scanned list. So the batches
+    of one library fit the next library's ids exactly, and would be handed back as its answers.
+    Anything that changes what was scanned, or the folders to sort into, has to clear them.
+    """
+    if paths.labels.exists():
+        shutil.rmtree(paths.labels)
+        print(reason)
+    paths.labels_file.unlink(missing_ok=True)
+
+
 def _drop_stale_labels(paths: Paths) -> None:
     """Spec 7.2: a change to categories.json makes every cached label stale, so they go."""
     fingerprint = categories_fingerprint(paths)
     marker = paths.categories_fingerprint_file
-    if marker.exists() and marker.read_text(encoding="utf-8").strip() == fingerprint:
-        return
-    if paths.labels.exists():
-        shutil.rmtree(paths.labels)
-        print("The list of folders changed, so labels from the old list were cleared.")
-    paths.labels_file.unlink(missing_ok=True)
+    if marker.exists():
+        if marker.read_text(encoding="utf-8").strip() == fingerprint:
+            return
+        _clear_label_cache(paths, "The list of folders changed, so labels from the old list were cleared.")
+    # No marker means a cache from before fingerprinting, not a changed list: it is kept and stamped.
     paths.labels.mkdir(parents=True, exist_ok=True)
     marker.write_text(fingerprint, encoding="utf-8")
 
@@ -147,7 +167,13 @@ def _cats(paths: Paths) -> list[Category]:
 def do_scan(paths: Paths, source: Path, limit: int) -> list[FileRecord]:
     if not source.is_dir():
         raise ValueError(f'"{source}" is not a folder we can open. Please choose a folder that exists.')
+    try:
+        check_destination(source, paths.root)
+    except ValueError:
+        raise ValueError(_ROOT_INSIDE_SOURCE) from None
     records = scan_folder(source, paths, limit, on_progress=_progress("Looking at your photos"))
+    # The inventory is new, so every cached label batch now describes other files.
+    _clear_label_cache(paths, "A different set of photos was looked at, so earlier labels were cleared.")
     photos = sum(1 for r in records if r.kind == "photo")
     unreadable = sum(1 for r in records if r.error)
     print(f"{len(records)} files: {photos} photos and {len(records) - photos} videos.")
@@ -209,6 +235,9 @@ def do_apply(paths: Paths, records: list[FileRecord], dest: Path) -> None:
 
 def do_sort(paths: Paths, source: Path, dest: Path, limit: int, labeler_name: str) -> None:
     """The whole pipeline. The scan is the slow part, so it is skipped when its answer still fits the request."""
+    # Checked first: on a large library the labelling can run for an hour, and being told
+    # only then that the destination is wrong wastes all of it.
+    check_destination(source, dest)
     saved = read_json(paths.source_file)
     unchanged = (
         isinstance(saved, dict)
@@ -285,7 +314,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{build_demo(paths, args.out)} files in the demo library.")
         elif args.command == "sort":
             do_sort(paths, args.source, args.dest, args.limit, args.labeler)
-    except (ValueError, LabelerUnavailable, OSError) as e:
+    except (ValueError, LabelerUnavailable) as e:
+        print(f"\n{e}")
+        return 1
+    except OSError as e:
+        # These carry a readable message, but a bug can arrive as one too, so keep the trace for the log.
+        log.debug("the %s command stopped on an operating system error", args.command, exc_info=True)
         print(f"\n{e}")
         return 1
     return 0

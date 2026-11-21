@@ -152,6 +152,86 @@ def test_categories_that_are_unchanged_keep_the_cached_labels(tmp_path, cli_root
     assert kept.exists()
 
 
+def test_scanning_a_different_folder_drops_the_cached_labels(capsys, tmp_path, cli_root):
+    """A file id is only its position in the scanned list, so another library's batches would fit it."""
+    paths = Paths(root=cli_root)
+    first = camera_roll(tmp_path / "roll-a", 3)
+    assert main(["scan", str(first), "--root", str(cli_root)]) == 0
+    assert main(["label", "--labeler", "stub", "--root", str(cli_root)]) == 0
+    cached = paths.labels / "claude_00.json"
+    cached.write_text('{"0": "snaps", "1": "snaps", "2": "snaps"}', encoding="utf-8")
+
+    second = camera_roll(tmp_path / "roll-b", 3)
+    capsys.readouterr()
+    assert main(["scan", str(second), "--root", str(cli_root)]) == 0
+    assert not cached.exists(), "the batches of the first folder must not be reused for the second"
+    assert not paths.labels_file.exists()
+    assert "labels" in capsys.readouterr().out.lower()
+
+
+def test_rescanning_with_a_different_limit_drops_the_cached_labels(tmp_path, cli_root):
+    paths = Paths(root=cli_root)
+    source = camera_roll(tmp_path / "roll", 4)
+    assert main(["scan", str(source), "--root", str(cli_root)]) == 0
+    paths.labels.mkdir(parents=True, exist_ok=True)
+    cached = paths.labels / "claude_00.json"
+    cached.write_text('{"0": "snaps"}', encoding="utf-8")
+    assert main(["scan", str(source), "--limit", "2", "--root", str(cli_root)]) == 0
+    assert not cached.exists()
+
+
+def test_a_skipped_scan_keeps_the_cached_labels_so_a_run_can_resume(tmp_path, cli_root):
+    paths = Paths(root=cli_root)
+    source = camera_roll(tmp_path / "roll", 3)
+    assert main(_sort_args(source, tmp_path / "out", cli_root)) == 0
+    cached = paths.labels / "claude_00.json"
+    cached.write_text('{"0": "snaps"}', encoding="utf-8")
+    assert main(_sort_args(source, tmp_path / "out", cli_root)) == 0
+    assert cached.exists(), "nothing changed, so the finished batches must survive"
+
+
+def test_a_cache_with_no_fingerprint_yet_is_kept_and_stamped(capsys, tmp_path, cli_root):
+    paths = Paths(root=cli_root)
+    source = camera_roll(tmp_path / "roll", 3)
+    assert main(["scan", str(source), "--root", str(cli_root)]) == 0
+    # A cache written before fingerprinting existed: no marker beside it.
+    paths.labels.mkdir(parents=True, exist_ok=True)
+    cached = paths.labels / "claude_00.json"
+    cached.write_text('{"0": "snaps"}', encoding="utf-8")
+    paths.categories_fingerprint_file.unlink(missing_ok=True)
+    capsys.readouterr()
+    assert main(["label", "--labeler", "stub", "--root", str(cli_root)]) == 0
+    assert cached.exists(), "an unstamped cache is not a changed folder list"
+    assert "list of folders changed" not in capsys.readouterr().out
+    assert paths.categories_fingerprint_file.exists()
+
+
+def test_scan_refuses_an_app_root_inside_the_photos_folder(capsys, tmp_path):
+    """The previews a scan writes would be read back as photos by the next scan."""
+    source = camera_roll(tmp_path / "roll", 2)
+    inside = source / "app"
+    inside.mkdir()
+    (inside / "categories.json").write_text(
+        '[{"key": "p", "kind": "photo", "label": "P", "emoji": "x", "rule": "any"}]', encoding="utf-8"
+    )
+    assert main(["scan", str(source), "--root", str(inside)]) == 1
+    assert "outside your photos folder" in capsys.readouterr().out
+    assert not (inside / "data").exists(), "nothing may be written before the check"
+
+
+def test_sort_checks_the_destination_before_doing_any_of_the_work(capsys, tmp_path, cli_root, monkeypatch):
+    import photosorter.__main__ as cli
+
+    source = camera_roll(tmp_path / "roll", 3)
+
+    def refuse(*a, **k):
+        raise AssertionError("the destination must be checked before anything is scanned")
+
+    monkeypatch.setattr(cli, "scan_folder", refuse)
+    assert cli.main(_sort_args(source, source / "sorted", cli_root)) == 1
+    assert "outside" in capsys.readouterr().out.lower()
+
+
 def test_an_unusable_folder_is_reported_in_plain_words(capsys, tmp_path, cli_root):
     assert main(["scan", str(tmp_path / "nope"), "--root", str(cli_root)]) == 1
     out = capsys.readouterr().out
