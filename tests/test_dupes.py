@@ -197,7 +197,7 @@ def bruteforce(recs, paths):
             same = True
         elif a.phash and b.phash and not a.error and not b.error:
             if a.kind == b.kind and hamming(a.phash, b.phash) <= 4:
-                guard = a.ext == b.ext == ".png" and not known_identical
+                guard = a.ext.lower() == b.ext.lower() == ".png" and not known_identical
                 same = not (guard and changed_fraction(paths, a.id, b.id) > 0.004)
         if same:
             parent[find(a.id)] = find(b.id)
@@ -246,6 +246,19 @@ def test_thousands_of_identical_hashes_stay_fast_and_are_reported(tmp_path):
     # the skipped records are counted, so the UI can say how many went unchecked
     assert result.capped_records == 4000
     assert sum(len(g.dupes) + 1 for g in result.groups) == 1000
+
+
+def test_a_record_capped_where_its_peers_live_is_still_counted(tmp_path):
+    # These three are identical in bands 1-4 and distinct in band 0, so record 2
+    # is alone in its band-0 bucket while being capped out of the bucket holding
+    # its true near-duplicates. Sitting alone is not being compared: a count
+    # that forgave it would report nothing missed while missing one.
+    paths = Paths(root=tmp_path)
+    recs = [rec(i, phash=f"0f0f0f0f0f0f0f0{i}") for i in range(3)]
+    result = find_duplicates(recs, paths, max_bucket=2)
+    assert groups_of(result.groups) == {frozenset({0, 1})}  # record 2 never compared
+    assert result.oversized_buckets == 4
+    assert result.capped_records == 1
 
 
 def test_nothing_is_reported_as_capped_when_no_bucket_overflows(tmp_path):

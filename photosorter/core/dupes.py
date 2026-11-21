@@ -52,9 +52,11 @@ class DuplicateResult:
     groups: list[DupeGroup]
     oversized_buckets: int
     pairs_compared: int
-    #: How many records sat past the cap in a degenerate bucket and so were
-    #: never near-matched. The only duplicates this module can miss, counted so
-    #: the UI can say "4,000 near-identical frames were too alike to compare".
+    #: How many records were dropped from at least one band's bucket because it
+    #: was degenerate, and so may not have been compared with everything they
+    #: should have been. Counted so the UI can say "4,000 near-identical frames
+    #: were too alike to compare". Deliberately an over-count: for a "possibly
+    #: unchecked" number, too many is safe and too few hides a real miss.
     capped_records: int = 0
 
 
@@ -189,6 +191,9 @@ def find_duplicates(
             # The cap is a prefix of a stable record order, so every band keeps
             # the same first max_bucket ids rather than splintering the group.
             oversized += 1
+            # Surviving in some other band's bucket is not evidence of having
+            # been compared with the peers that were cut here, so a drop in any
+            # one band is enough to count the record as possibly unchecked.
             capped.update(ids[max_bucket:])
             ids = ids[:max_bucket]
         buckets_done += 1
@@ -201,12 +206,6 @@ def find_duplicates(
                 pairs += 1
                 if _is_duplicate(by_id[a], by_id[b], paths, cache):
                     union(a, b)
-
-    if capped:
-        # A record cut from one band may still have been compared in another, so
-        # only the ones every band dropped went genuinely unchecked.
-        for ids in buckets.values():
-            capped.difference_update(ids[:max_bucket])
 
     components: dict[int, list[int]] = {}
     for r in records:
