@@ -8,6 +8,7 @@ any draw moves every thumbnail after it.
 
 from __future__ import annotations
 
+import hashlib
 import random
 from pathlib import Path
 
@@ -15,7 +16,7 @@ from PIL import Image, ImageDraw, ImageFilter
 
 from photosorter.config import Paths, write_json
 from photosorter.core.categories import load_categories
-from photosorter.models import DupeGroup
+from photosorter.models import DupeGroup, FileRecord
 
 SEED = 7
 
@@ -108,45 +109,84 @@ def _draw(rnd: random.Random, key: str, S: int = 256) -> Image.Image:
     return im.filter(ImageFilter.GaussianBlur(0.6))
 
 
+def _checked_out(paths: Paths, out: Path | None) -> Path:
+    """Where the demo may write: a folder strictly inside paths.root.
+
+    A relative `out` is taken from the root, never from the process's working directory,
+    so an empty or drive-relative path cannot scatter files somewhere else.
+    """
+    root = paths.root.resolve()
+    target = (paths.demo if out is None else root / out).resolve()
+    if root not in target.parents:
+        raise ValueError(f"The demo folder must be inside {root}, not {target}.")
+    return target
+
+
+def _keep_for(records: list[FileRecord], k: int) -> int | None:
+    """The neighbour a burst group keeps: the photo just before k, else just after. None if neither is a photo."""
+    for n in (k - 1, k + 1):
+        if 0 <= n < len(records) and records[n].kind == "photo":
+            return n
+    return None
+
+
 def build_demo(paths: Paths, out: Path | None = None) -> int:
-    """Write the demo library into `out` (default <root>/demo). Returns how many files it describes."""
-    out = paths.demo if out is None else out
+    """Write the demo library into `out` (default <root>/demo), which must sit inside paths.root.
+
+    Returns the number of camera-roll records, i.e. 1057 for the shipped WEIGHTS. Each record
+    also gets one thumb and one mini on disk, so the file count is twice that plus the JSON files.
+    """
+    out = _checked_out(paths, out)
     rnd = random.Random(SEED)
     cats = load_categories(paths)
-    (out / "thumbs").mkdir(parents=True, exist_ok=True)
-    (out / "mini").mkdir(parents=True, exist_ok=True)
+    for sub in ("thumbs", "mini"):
+        (out / sub).mkdir(parents=True, exist_ok=True)
+        # Clear old previews so a smaller WEIGHTS or category list leaves no orphan thumbs behind.
+        for stale in (out / sub).glob("*.jpg"):
+            stale.unlink()
 
-    inv: list[dict] = []
+    records: list[FileRecord] = []
     labels: dict[str, str] = {}
     for cat in cats:
         video = cat.kind == "video"
         for _ in range(WEIGHTS.get(cat.key, 40)):
-            i = len(inv)
+            i = len(records)
             im = _draw(rnd, cat.key)
             im.save(out / "thumbs" / f"{i}.jpg", quality=78)
             im.resize((72, 72)).save(out / "mini" / f"{i}.jpg", quality=72)
-            inv.append({
-                "id": i,
-                "name": f"IMG_{4000 + i}.{'MOV' if video else 'JPG'}",
-                "kind": cat.kind,
-                "ext": ".mov" if video else ".jpg",
-                "bytes": rnd.randint(20, 90) * 10**6 if video else rnd.randint(18, 60) * 10**5,
-            })
+            name = f"IMG_{4000 + i}.{'MOV' if video else 'JPG'}"
+            # Placeholders for what a file that does not exist cannot have: the path is a bare name
+            # (nothing sits at it), sha256 is a hash of that name so no two demo files look identical,
+            # w/h are the drawn thumb size and duration is 0 (unknown).
+            records.append(FileRecord(
+                id=i,
+                path=Path(name),
+                name=name,
+                ext=".mov" if video else ".jpg",
+                kind=cat.kind,
+                bytes=rnd.randint(20, 90) * 10**6 if video else rnd.randint(18, 60) * 10**5,
+                sha256=hashlib.sha256(name.encode()).hexdigest(),
+                w=256,
+                h=256,
+                duration=0.0,
+            ))
             labels[str(i)] = cat.key
 
-    # Pretend a few photos are burst shots: each group keeps its neighbour and drops the photo.
+    # Pretend a few photos are burst shots: each group keeps a neighbouring photo and drops this one.
     dupes: list[DupeGroup] = []
     seen: set[int] = set()
     for _ in range(38):
-        k = rnd.randrange(len(inv))
-        if inv[k]["kind"] == "photo" and k not in seen:
-            seen.add(k)
-            dupes.append(DupeGroup(keep=max(0, k - 1), dupes=[k], type="near", freed=inv[k]["bytes"] * 6))
+        k = rnd.randrange(len(records))  # drawn even when skipped, so later draws stay put
+        keep = _keep_for(records, k)
+        if keep is None or records[k].kind != "photo" or k in seen:
+            continue
+        seen.add(k)
+        dupes.append(DupeGroup(keep=keep, dupes=[k], type="near", freed=records[k].bytes * 6))
 
-    write_json(out / "inventory.json", inv)
-    write_json(out / "slim.json", [{"id": r["id"], "kind": r["kind"], "bytes": r["bytes"]} for r in inv])
+    write_json(out / "inventory.json", [r.to_dict() for r in records])
+    write_json(out / "slim.json", [r.slim() for r in records])
     write_json(out / "labels.json", labels)
     write_json(out / "dupes.json", [g.to_dict() for g in dupes])
     write_json(out / "categories.json", [c.to_dict() for c in cats])
     write_json(out / "source.json", {"source": "~/Pictures/Camera roll (demo)"})
-    return len(inv)
+    return len(records)
