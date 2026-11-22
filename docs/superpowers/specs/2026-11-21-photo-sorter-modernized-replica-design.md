@@ -110,7 +110,8 @@ Folder directory name = category `label` with `&` → `and` and `/` → `-`. Fil
 |---|---|---|
 | GET | `/api/state` | Everything the UI needs: categories, source/limit/sorted, file count and total bytes, per-step completion flags, `jev_key` and `claude_cli` availability, override count, the live `job` object, platform. |
 | GET | `/api/labels` | Labels written *so far*, for the live animation (Claude batches + Jev answers ≥ 0.7 confidence). |
-| GET | `/api/file/{id}` | The original file. HTTP Range supported for video seeking. HEIC/HEIF/TIFF/BMP are converted to JPEG on the fly (max 2400px) because browsers cannot display them. `.mov` is served as `video/mp4`. |
+| GET | `/api/file/{id}` | The original file. **Requires `?sha=<the record's sha256>`** - 400 without it, 409 when it does not match the record now at that id, `?sha=any` to skip the check. Ids are positions in the last scan, so a page held open across a rescan would otherwise be served a different photo than the one it is showing. HTTP Range supported for video seeking. HEIC/HEIF/TIFF/BMP are converted to JPEG on the fly (max 2400px) because browsers cannot display them, bounded to 2 concurrent decodes and refused above 128MP. `.mov` is served as `video/mp4`. |
+| GET | `/api/record/{id}` | The full record for one file, for the lightbox. **Requires `?sha=` on the same terms as `/api/file/{id}`.** |
 | POST | `/api/sort` | Start the whole pipeline. Validates source exists, labeller is available; decides whether a re-scan is needed by comparing source path and limit. |
 | POST | `/api/run` | Run one phase alone (`scan`, `dupes`, `claude`, `jev`, `estimate`, `apply`). |
 | POST | `/api/peek` | Right after a folder is picked: count photos/videos/bytes (skipping dotfolders and `* (sorted)`), generate up to 60 random 64px previews (seed 3), suggest `<source> (sorted)` as the destination. |
