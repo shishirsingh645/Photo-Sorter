@@ -8,9 +8,14 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, model_validator
 
-from photosorter.__main__ import _drop_stale_labels  # the CLI's own cache invalidation: one rule, not two
 from photosorter.config import Paths, read_json, write_json
-from photosorter.core.categories import load_categories, save_categories, validate_categories
+from photosorter.core.categories import (
+    categories_fingerprint,
+    clear_label_cache,
+    load_categories,
+    save_categories,
+    validate_categories,
+)
 from photosorter.core.peek import peek_folder
 from photosorter.models import Category
 from photosorter.picker import choose_folder, picker_available
@@ -119,7 +124,11 @@ def set_categories(body: CategoriesIn, request: Request) -> dict:
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     save_categories(paths, cats)
-    _drop_stale_labels(paths)  # labels made for the old folder list must not be reused
+    # Unconditional: this route is only called because the list changed, so a missing or equal fingerprint
+    # must not be read as "nothing changed". (The CLI's keep-and-stamp rule is for caches from older installs.)
+    clear_label_cache(paths)
+    paths.labels.mkdir(parents=True, exist_ok=True)
+    paths.categories_fingerprint_file.write_text(categories_fingerprint(paths), encoding="utf-8")
     return {"ok": True, "count": len(cats)}
 
 

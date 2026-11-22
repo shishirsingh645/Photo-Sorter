@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import shutil
 import sys
 import threading
 from collections.abc import Sequence
@@ -22,7 +21,12 @@ from pathlib import Path
 
 from photosorter.config import Paths, read_json, write_json
 from photosorter.core.apply import apply_labels, check_destination, merge_labels
-from photosorter.core.categories import categories_fingerprint, load_categories, validate_categories
+from photosorter.core.categories import (
+    categories_fingerprint,
+    clear_label_cache,
+    load_categories,
+    validate_categories,
+)
 from photosorter.core.demo import build_demo
 from photosorter.core.dupes import find_duplicates
 from photosorter.core.labelers.base import LabelerUnavailable
@@ -132,17 +136,9 @@ def _scanned_source(paths: Paths) -> Path:
 
 
 def _clear_label_cache(paths: Paths, reason: str) -> None:
-    """Throw away every cached label batch, and the merged labels built from them.
-
-    A batch is cached under its batch number and reused when nearly all the ids it was asked
-    about are in it, while an id is only a file's position in the scanned list. So the batches
-    of one library fit the next library's ids exactly, and would be handed back as its answers.
-    Anything that changes what was scanned, or the folders to sort into, has to clear them.
-    """
-    if paths.labels.exists():
-        shutil.rmtree(paths.labels)
+    """Clear every cached label (see clear_label_cache) and say why, if there was a cache to clear."""
+    if clear_label_cache(paths):
         print(reason)
-    paths.labels_file.unlink(missing_ok=True)
 
 
 def _drop_stale_labels(paths: Paths) -> None:

@@ -163,11 +163,15 @@ def test_open_refuses_a_link_inside_the_destination_that_points_outside(client, 
     link = dest / "Escape"
     try:
         os.symlink(outside, link, target_is_directory=True)
+        mechanism = "symlink"
     except OSError:  # Windows without developer mode: a junction needs no privilege and escapes the same way
         if sys.platform != "win32":
             raise
         subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(outside)], check=True, capture_output=True)
+        mechanism = "junction"
+    print("escape link mechanism:", mechanism)  # visible with `pytest -s`; recorded in the report
     assert link.is_dir()
+    assert os.path.realpath(link) == os.path.realpath(outside), mechanism  # the link really leaves the root
     monkeypatch.setattr(R + "open_folder", lambda p: (_ for _ in ()).throw(AssertionError("opened " + str(p))))
     r = client.post("/api/open", json={"folder": "Escape"})
     assert r.status_code == 400 and "not inside" in r.json()["detail"]
@@ -203,25 +207,29 @@ def test_categories_rejects_a_duplicate_key(client, paths):
     assert paths.categories_file.read_bytes() == before
 
 
-def test_changing_categories_clears_cached_labels_but_an_identical_save_keeps_them(client, paths):
+def test_saving_categories_clears_cached_labels_and_restamps_the_fingerprint(client, paths):
     from photosorter.core.categories import categories_fingerprint
 
     paths.labels.mkdir(parents=True)
     (paths.labels / "batch_0.json").write_text("{}", encoding="utf-8")
     write_json(paths.labels_file, {"0": "food"})
-    same = _cats(paths)
-    assert client.post("/api/categories", json={"categories": same}).status_code == 200  # normalises the file bytes
-    (paths.labels).mkdir(parents=True, exist_ok=True)
-    (paths.labels / "batch_0.json").write_text("{}", encoding="utf-8")
-    write_json(paths.labels_file, {"0": "food"})
-    paths.categories_fingerprint_file.write_text(categories_fingerprint(paths), encoding="utf-8")
-    assert client.post("/api/categories", json={"categories": same}).status_code == 200
-    assert (paths.labels / "batch_0.json").exists() and paths.labels_file.exists()
-
-    changed = same + [_cat("brand_new")]
-    assert client.post("/api/categories", json={"categories": changed}).status_code == 200
+    paths.categories_fingerprint_file.write_text("stale", encoding="utf-8")
+    assert client.post("/api/categories", json={"categories": _cats(paths) + [_cat("brand_new")]}).status_code == 200
     assert not (paths.labels / "batch_0.json").exists()
     assert not paths.labels_file.exists()
+    assert paths.categories_fingerprint_file.read_text(encoding="utf-8").strip() == categories_fingerprint(paths)
+
+
+def test_categories_clears_the_cache_even_when_there_is_no_fingerprint_marker(client, paths):
+    # a library sorted before fingerprinting existed: cache present, no marker
+    paths.labels.mkdir(parents=True)
+    (paths.labels / "batch_0.json").write_text("{}", encoding="utf-8")
+    write_json(paths.labels_file, {"0": "food"})
+    assert not paths.categories_fingerprint_file.exists()
+    assert client.post("/api/categories", json={"categories": _cats(paths) + [_cat("new")]}).status_code == 200
+    assert not (paths.labels / "batch_0.json").exists() and not paths.labels_file.exists()
+    from photosorter.core.categories import categories_fingerprint
+
     assert paths.categories_fingerprint_file.read_text(encoding="utf-8").strip() == categories_fingerprint(paths)
 
 

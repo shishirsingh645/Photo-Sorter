@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import shutil
 
 from photosorter.config import Paths, read_json, write_json
 from photosorter.models import Category
@@ -35,3 +36,18 @@ def categories_fingerprint(paths: Paths) -> str:
 def catch_all_for(cats: list[Category], kind: str) -> Category | None:
     """The last folder of a kind takes whatever fits nowhere else. None if the kind has no folders."""
     return next((c for c in reversed(cats) if c.kind == kind), None)
+
+
+def clear_label_cache(paths: Paths) -> bool:
+    """Throw away every cached label batch, and the merged labels built from them. True if a cache existed.
+
+    A batch is cached under its batch number and reused when nearly all the ids it was asked
+    about are in it, while an id is only a file's position in the scanned list. So the batches
+    of one library fit the next library's ids exactly, and would be handed back as its answers.
+    Anything that changes what was scanned, or the folders to sort into, has to clear them.
+    """
+    existed = paths.labels.exists()
+    if existed:
+        shutil.rmtree(paths.labels)
+    paths.labels_file.unlink(missing_ok=True)
+    return existed
