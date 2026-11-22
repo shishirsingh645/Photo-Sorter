@@ -38,6 +38,18 @@ def catch_all_for(cats: list[Category], kind: str) -> Category | None:
     return next((c for c in reversed(cats) if c.kind == kind), None)
 
 
+def read_marker(paths: Paths) -> str | None:
+    """The stored fingerprint, None if there is no marker, or the poison value if it cannot be read
+    (non-UTF-8, a directory in its place): an unreadable marker must read as 'does not match'."""
+    marker = paths.categories_fingerprint_file
+    if not marker.exists():
+        return None
+    try:
+        return marker.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        return POISON
+
+
 class LabelCacheInUse(ValueError):
     """The cached labels could not all be deleted, probably because a running sort holds one open."""
 

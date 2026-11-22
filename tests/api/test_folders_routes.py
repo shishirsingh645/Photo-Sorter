@@ -4,7 +4,9 @@ from pathlib import Path
 from PIL import Image
 
 from photosorter.config import write_json
+from photosorter.core.apply import folder_name
 from photosorter.core.peek import PREVIEW_BYTES_PER_FILE
+from photosorter.models import Category
 
 R = "photosorter.api.routes_folders."
 
@@ -236,14 +238,19 @@ def test_categories_clears_the_cache_even_when_there_is_no_fingerprint_marker(cl
 # ---- /api/move ----
 
 def _scan_ids(paths, n=3):
+    """What a real scan leaves: both files. /api/move checks the id against the inventory, like /api/file."""
     write_json(paths.slim_file, [{"id": i, "kind": "photo", "bytes": 1} for i in range(n)])
+    write_json(
+        paths.inventory_file,
+        [{"id": i, "name": f"p{i}.jpg", "path": f"/src/p{i}.jpg", "sha256": f"sha{i}"} for i in range(n)],
+    )
 
 
 def test_move_records_an_override_in_the_shape_merge_labels_reads(client, paths):
     _scan_ids(paths)
-    assert client.post("/api/move", json={"id": 2, "key": "food"}).status_code == 200
-    assert client.post("/api/move", json={"id": 0, "key": "people"}).status_code == 200
-    assert client.post("/api/move", json={"id": 2, "key": "city"}).status_code == 200  # last move wins
+    assert client.post("/api/move", json={"id": 2, "key": "food", "sha": "any"}).status_code == 200
+    assert client.post("/api/move", json={"id": 0, "key": "people", "sha": "any"}).status_code == 200
+    assert client.post("/api/move", json={"id": 2, "key": "city", "sha": "any"}).status_code == 200  # last move wins
     got = json.loads(paths.overrides_file.read_text(encoding="utf-8"))
     assert got == {"2": "city", "0": "people"}
 
@@ -251,13 +258,13 @@ def test_move_records_an_override_in_the_shape_merge_labels_reads(client, paths)
 def test_move_updates_the_merged_label_when_there_is_one(client, paths):
     _scan_ids(paths)
     write_json(paths.labels_file, {"2": "people", "1": "people"})
-    client.post("/api/move", json={"id": 2, "key": "food"})
+    client.post("/api/move", json={"id": 2, "key": "food", "sha": "any"})
     assert json.loads(paths.labels_file.read_text(encoding="utf-8")) == {"2": "food", "1": "people"}
 
 
 def test_move_rejects_an_unknown_category_and_stores_nothing(client, paths):
     _scan_ids(paths)
-    r = client.post("/api/move", json={"id": 1, "key": "no_such_folder"})
+    r = client.post("/api/move", json={"id": 1, "key": "no_such_folder", "sha": "any"})
     assert r.status_code == 400 and "no_such_folder" in r.json()["detail"]
     assert not paths.overrides_file.exists()
 
@@ -265,13 +272,13 @@ def test_move_rejects_an_unknown_category_and_stores_nothing(client, paths):
 def test_move_rejects_an_id_that_is_not_in_the_scan(client, paths):
     _scan_ids(paths, 3)
     for bad in (3, -1, 999):
-        r = client.post("/api/move", json={"id": bad, "key": "food"})
+        r = client.post("/api/move", json={"id": bad, "key": "food", "sha": "any"})
         assert r.status_code == 404 and "scan" in r.json()["detail"]
     assert not paths.overrides_file.exists()
 
 
 def test_move_with_no_scan_is_a_404(client, paths):
-    r = client.post("/api/move", json={"id": 0, "key": "food"})
+    r = client.post("/api/move", json={"id": 0, "key": "food", "sha": "any"})
     assert r.status_code == 404 and "scan" in r.json()["detail"]
 
 
@@ -279,7 +286,7 @@ def test_move_refuses_to_overwrite_a_damaged_overrides_file(client, paths):
     _scan_ids(paths)
     paths.overrides_file.parent.mkdir(parents=True, exist_ok=True)
     paths.overrides_file.write_text("{not json", encoding="utf-8")
-    r = client.post("/api/move", json={"id": 1, "key": "food"})
+    r = client.post("/api/move", json={"id": 1, "key": "food", "sha": "any"})
     assert r.status_code == 409
     assert paths.overrides_file.read_text(encoding="utf-8") == "{not json"
 
@@ -363,15 +370,49 @@ def test_clear_label_cache_unit(paths, monkeypatch):
     assert paths.categories_fingerprint_file.read_text(encoding="utf-8").strip() != categories_fingerprint(paths)
 
 
-def test_categories_rejects_labels_that_could_leave_the_destination(client, paths):
+def test_categories_refuses_a_label_with_no_usable_name_left(client, paths):
+    """Only a label that cannot become a folder at all is refused, and nothing is written when it is."""
     before = paths.categories_file.read_bytes()
-    bad_labels = ("", "   ", "..", "...", "..B..Bx", "KidsBSports", "a/b", "C:BUsersBPublicBEvil", "C:x")
-    for bad in (b.replace("B", chr(92)) for b in bad_labels):
+    for bad in ("", "   ", "..", "...", " . ", "x" * 201):
         cats = [{**_cat("p"), "label": bad}, _cat("v", "video")]
         r = client.post("/api/categories", json={"categories": cats})
         assert r.status_code == 400, repr(bad)
         assert "name" in r.json()["detail"]
     assert paths.categories_file.read_bytes() == before
+
+
+def test_categories_accepts_awkward_labels_and_keeps_them_inside_the_destination(client, paths):
+    """The route refuses exactly what folder_name refuses, so a label the CLI has always sorted still saves.
+
+    What must never happen is a 200 followed by a folder outside the destination, a name Windows rejects
+    mid-copy with WinError 123, or two labels silently sharing one directory.
+    """
+    dest = Path(r"C:\dest\inner")
+    awkward = [
+        "Kids/Sports",  # the CLI has turned this into Kids-Sports since Plan 1
+        "..B..BESCAPED",
+        "C:BUsersBPublicBEvil",
+        "Beach | Sea",
+        "What? *",
+        'He said "hi"',
+        "a<b>c",
+        "Food.",  # Windows drops the trailing dot, so this must not end up sharing Food's folder
+        "line\nbreak",
+        "tab\there",
+        "nul\x00byte",
+    ]
+    names: list[str] = []
+    for label in (a.replace("B", chr(92)) for a in awkward):
+        cats = [{**_cat("p"), "label": label}, _cat("v", "video")]
+        r = client.post("/api/categories", json={"categories": cats})
+        assert r.status_code == 200, (repr(label), r.text)
+        name = folder_name(Category(key="p", kind="photo", label=label, emoji="x", rule="r"))
+        names.append(name)
+        assert (dest / name).resolve().is_relative_to(dest), f"{label!r} -> {name!r} left the destination"
+        assert not any(ch in name for ch in '<>:"/\\|?*'), f"{label!r} -> {name!r} keeps an illegal character"
+        assert name == name.rstrip(" ."), f"{label!r} -> {name!r} has a trailing dot or space"
+        assert min(name) >= " ", f"{label!r} -> {name!r} keeps a control character"
+    assert "Kids-Sports" in names, "Kids/Sports must still round-trip the way the CLI has always written it"
 
 
 def test_pick_refuses_a_second_dialog_while_one_is_open(client, monkeypatch):
@@ -409,10 +450,29 @@ def test_move_with_a_sha_that_no_longer_matches_is_a_409(client, paths):
     assert json.loads(paths.overrides_file.read_text(encoding="utf-8")) == {"1": "food"}
 
 
+def test_categories_refuses_two_labels_that_become_the_same_folder(client, paths):
+    """Food. and Food both become Food, so accepting both would silently mix two categories' photos."""
+    before = paths.categories_file.read_bytes()
+    for a, b in (("Food.", "Food"), ("Kids/Sports", "Kids-Sports"), ("Trip ", "Trip")):
+        cats = [{**_cat("p"), "label": a}, {**_cat("p2"), "label": b}, _cat("v", "video")]
+        r = client.post("/api/categories", json={"categories": cats})
+        assert r.status_code == 400, (a, b, r.text)
+        assert "mixed" in r.json()["detail"]
+    assert paths.categories_file.read_bytes() == before
+
+
+def test_move_without_a_sha_is_refused_and_stores_nothing(client, paths):
+    """Same contract as /api/file: an override is persistent, so a stale id here misfiles a photo for good."""
+    _scan_ids(paths)
+    r = client.post("/api/move", json={"id": 1, "key": "food"})
+    assert r.status_code == 400 and "sha" in r.json()["detail"]
+    assert not paths.overrides_file.exists()
+
+
 def test_move_leaves_a_damaged_labels_file_alone_but_still_saves_the_move(client, paths):
     _scan_ids(paths)
     paths.labels_file.parent.mkdir(parents=True, exist_ok=True)
     paths.labels_file.write_text("{broken", encoding="utf-8")
-    assert client.post("/api/move", json={"id": 1, "key": "food"}).status_code == 200
+    assert client.post("/api/move", json={"id": 1, "key": "food", "sha": "any"}).status_code == 200
     assert json.loads(paths.overrides_file.read_text(encoding="utf-8")) == {"1": "food"}
     assert paths.labels_file.read_text(encoding="utf-8") == "{broken"

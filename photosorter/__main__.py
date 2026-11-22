@@ -25,6 +25,7 @@ from photosorter.core.categories import (
     categories_fingerprint,
     clear_label_cache,
     load_categories,
+    read_marker,
     validate_categories,
 )
 from photosorter.core.demo import build_demo
@@ -145,8 +146,9 @@ def _drop_stale_labels(paths: Paths) -> None:
     """Spec 7.2: a change to categories.json makes every cached label stale, so they go."""
     fingerprint = categories_fingerprint(paths)
     marker = paths.categories_fingerprint_file
-    if marker.exists():
-        if marker.read_text(encoding="utf-8").strip() == fingerprint:
+    stored = read_marker(paths)
+    if stored is not None:
+        if stored == fingerprint:
             return
         _clear_label_cache(paths, "The list of folders changed, so labels from the old list were cleared.")
     # No marker means a cache from before fingerprinting, not a changed list: it is kept and stamped.
