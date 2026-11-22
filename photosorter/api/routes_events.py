@@ -23,6 +23,8 @@ def get_events(request: Request) -> StreamingResponse:
         with runner.subscribe() as sub:  # __exit__ unsubscribes, including when the client vanishes
             yield ": connected\n\n"  # flushes the headers, so a client knows at once that it is attached
             beat = time.monotonic()
+            # The loop ends when the runner drops this subscription (it stopped being drained), so the
+            # response ends too and the browser's EventSource reconnects instead of sitting on a frozen bar.
             async for event in sub:
                 if event is not None:
                     yield f"data: {event.model_dump_json()}\n\n"

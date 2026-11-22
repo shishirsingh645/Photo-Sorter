@@ -25,6 +25,7 @@ QUEUE_SIZE = 1000
 POLL_SECONDS = 0.5  # how long a waiting reader blocks a worker thread, so a disconnect is noticed quickly
 MIN_INTERVAL = 0.1  # spec 13.3: at most 10 progress events a second ...
 MIN_FRACTION = 0.005  # ... and at most one per 0.5% of total, whichever is less frequent
+STOPPED = "Stopped at your request."
 
 
 class JobBusy(Exception):
@@ -62,7 +63,12 @@ JobEvent = PhaseStarted | Progress | LogLine | JobFinished
 
 
 class Subscription:
-    """One reader's bounded mailbox. Async-iterable for the SSE route, drainable for tests."""
+    """One reader's bounded mailbox: an `AsyncIterator[JobEvent | None]` for the SSE route, drainable for tests.
+
+    A `None` from the iterator means "nothing arrived in POLL_SECONDS" - the caller's heartbeat tick.
+    Iteration ends (StopAsyncIteration) once the subscription is closed, including when the runner
+    dropped it for not draining, so the HTTP response ends and the browser's EventSource reconnects.
+    """
 
     def __init__(self, runner: JobRunner, maxsize: int = QUEUE_SIZE) -> None:
         self._runner = runner
@@ -90,10 +96,14 @@ class Subscription:
         return self
 
     async def __anext__(self) -> JobEvent | None:
-        """The next event, or None when nothing arrived within `POLL_SECONDS` (the caller's heartbeat tick)."""
+        """The next event, None on a poll timeout, or StopAsyncIteration once this subscription is closed."""
+        if self.closed:
+            raise StopAsyncIteration
         try:
             return await asyncio.to_thread(self._q.get, True, POLL_SECONDS)
         except queue.Empty:
+            if self.closed:  # dropped while we waited: end the response instead of ticking on forever
+                raise StopAsyncIteration from None
             return None
 
 
@@ -108,8 +118,18 @@ class JobContext:
     def log(self, msg: str) -> None:
         self._runner._log(msg)
 
-    def run_phase(self, name: str, fn: Callable[[ProgressFn], object]) -> object:
-        return self._runner._run_phase(name, fn)
+    def run_phase(self, name: str, fn: Callable[[ProgressFn], object], interrupt: bool = False) -> object:
+        """Run one phase, timing it and turning its progress into events.
+
+        `interrupt=True` stops the phase by raising out of the progress callback. Use it ONLY for a
+        phase that takes no `cancel` parameter and has nothing to clean up (find_duplicates writes
+        its file at the very end). The default is False because a phase with its own cancel contract
+        must be allowed to run it: `scan_folder` wipes thumbs/ and mini/ up front and, on cancel,
+        deletes inventory.json, slim.json and source.json - unwinding past that would leave an
+        inventory of 100k records pointing at 2k surviving previews. Those phases see
+        `ctx.cancel_event` and stop themselves.
+        """
+        return self._runner._run_phase(name, fn, interrupt)
 
 
 class JobRunner:
@@ -128,8 +148,8 @@ class JobRunner:
         with self._lock:
             return len(self._subscribers)
 
-    def subscribe(self, maxsize: int = QUEUE_SIZE) -> Subscription:
-        sub = Subscription(self, maxsize)
+    def subscribe(self, maxsize: int | None = None) -> Subscription:
+        sub = Subscription(self, QUEUE_SIZE if maxsize is None else maxsize)
         with self._lock:
             self._subscribers.add(sub)
         return sub
@@ -174,7 +194,10 @@ class JobRunner:
         return not thread.is_alive()
 
     def cancel(self) -> None:
-        self.cancel_event.set()
+        # Under the lock: an unlocked read could grab the event `start` is in the middle of replacing,
+        # so a Stop racing a Start would cancel the job that just began.
+        with self._lock:
+            self.cancel_event.set()
 
     def start(self, step: str, phases: list[str], body: Callable[[JobContext], None]) -> None:
         with self._lock:
@@ -182,32 +205,44 @@ class JobRunner:
                 raise JobBusy(f"A {self._state.step} job is already running. Stop it before starting another.")
             self.cancel_event = threading.Event()  # fresh, so a previous job's cancel cannot kill this one
             self._state = JobState(step=step, running=True, phases=list(phases), started=time.time())
-        self._thread = threading.Thread(target=self._run, args=(body,), daemon=True, name=f"job-{step}")
-        self._thread.start()
+            self._thread = threading.Thread(target=self._run, args=(body,), daemon=True, name=f"job-{step}")
+            self._thread.start()
 
     def _run(self, body: Callable[[JobContext], None]) -> None:
         ctx = JobContext(self)
-        code = 0
+        code, message = 0, ""
         try:
-            body(ctx)
-            if self.cancel_event.is_set():
-                code = 1
-                self._log("Stopped at your request.")
-        except _Cancelled:
-            code = 1
-            self._log("Stopped at your request.")
-        except Exception as exc:
-            code = 1
-            # The message only: a ValueError out of band_keys ("phash must be 16 hex characters...") is a
-            # sentence the user can act on, and a traceback in the job log is not.
-            self._log(str(exc) or type(exc).__name__)
-        with self._lock:
+            try:
+                body(ctx)
+                if self.cancel_event.is_set():
+                    code, message = 1, STOPPED
+            except _Cancelled:
+                code, message = 1, STOPPED
+            except BaseException as exc:
+                # BaseException, not Exception: argparse in a labeller calls sys.exit(), and a SystemExit
+                # or KeyboardInterrupt that escaped here would leave running=True and no job_finished -
+                # a job the UI shows forever and a Start button that raises JobBusy until restart.
+                # The message only: a ValueError out of band_keys ("phash must be 16 hex characters...")
+                # is a sentence the user can act on, and a traceback in the job log is not.
+                code, message = 1, str(exc) or type(exc).__name__
+                if not isinstance(exc, Exception):
+                    raise  # a shutdown signal is never swallowed; the bookkeeping below still runs
+        finally:
+            self._finish(code, message)
+
+    def _finish(self, code: int, message: str) -> None:
+        """Always runs, and cannot raise: whatever happened, the job must end and say so."""
+        try:
+            if message:
+                self._log(message)
+        except Exception:  # a broken log must not cost the UI its job_finished
+            pass
+        with self._lock:  # inside the lock, so a new job's phase_started can never precede this
             self._state.running = False
             self._state.code = code
-            step = self._state.step or ""
-        self._publish(JobFinished(step=step, code=code))
+            self._publish(JobFinished(step=self._state.step or "", code=code))
 
-    def _run_phase(self, name: str, fn: Callable[[ProgressFn], object]) -> object:
+    def _run_phase(self, name: str, fn: Callable[[ProgressFn], object], interrupt: bool = False) -> object:
         if self.cancel_event.is_set():
             raise _Cancelled
         with self._lock:
@@ -222,9 +257,13 @@ class JobRunner:
 
         def progress(now_done: int, now_total: int) -> None:
             nonlocal emitted, emitted_at, done, total, reported
-            if self.cancel_event.is_set():
-                raise _Cancelled  # cancellation has to stop the work, not just flag it
+            if interrupt and self.cancel_event.is_set():
+                raise _Cancelled  # only for a phase with no cancel parameter of its own: see run_phase
             done, total, reported = now_done, now_total, True
+            with self._lock:
+                # Every tick, not only the published ones: spec 13.3 throttles EVENTS, and /api/state is
+                # the reconnect fallback - a phase at 2 files/s would otherwise report 0/0 for minutes.
+                self._state.done, self._state.total = now_done, now_total
             now = time.monotonic()
             step = max(1, int(now_total * MIN_FRACTION))
             if now_done - (emitted[0] if emitted else 0) >= step and now - emitted_at >= MIN_INTERVAL:

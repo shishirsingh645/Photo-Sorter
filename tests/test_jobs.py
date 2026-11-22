@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import queue
 import threading
 from pathlib import Path
@@ -9,7 +10,11 @@ from pathlib import Path
 import pytest
 
 from photosorter.config import Paths
+from photosorter.core.scan import scan_folder
+from photosorter.core.sheets import PER_SHEET, build_sheets
 from photosorter.jobs import JobBusy, JobRunner
+from photosorter.models import FileRecord
+from tests.conftest import camera_roll
 
 
 @pytest.fixture
@@ -36,6 +41,11 @@ def test_second_start_while_running_raises_job_busy(runner: JobRunner) -> None:
     finally:
         release.set()
     assert runner.join(5)
+    # ... and the refusal has to be about THIS job, not a flag nobody ever clears:
+    assert runner.state().running is False
+    runner.start("sort", ["scan"], lambda ctx: ctx.run_phase("scan", lambda p: p(1, 1)))
+    assert runner.join(5)
+    assert runner.state().code == 0
 
 
 def test_phases_are_timed_and_recorded_in_order(runner: JobRunner) -> None:
@@ -112,7 +122,7 @@ def test_cancel_stops_the_work_instead_of_letting_it_run_on(runner: JobRunner) -
             progress(i, 1000)
 
     def body(ctx):
-        ctx.run_phase("scan", long_phase)
+        ctx.run_phase("scan", long_phase, interrupt=True)
         second_phase_ran.set()
         ctx.run_phase("dupes", lambda p: p(1, 1))
 
@@ -142,7 +152,9 @@ def test_every_subscriber_receives_the_same_events(runner: JobRunner) -> None:
     a, b = runner.subscribe(), runner.subscribe()
     runner.start("sort", ["scan"], lambda ctx: ctx.run_phase("scan", lambda p: p(1, 1)))
     assert runner.join(5)
-    assert [e.model_dump() for e in drain(a)] == [e.model_dump() for e in drain(b)]
+    first, second = drain(a), drain(b)
+    assert [e.type for e in first] == ["phase_started", "progress", "job_finished"]
+    assert [e.model_dump() for e in first] == [e.model_dump() for e in second]
     assert runner.subscriber_count == 2
 
 
@@ -226,3 +238,145 @@ def test_a_finished_runner_can_start_again(runner: JobRunner) -> None:
     assert runner.join(5)
     s = runner.state()
     assert s.step == "dupes" and s.code == 0 and list(s.timings) == ["dupes"]
+
+
+# --- fix round 1 -------------------------------------------------------------
+
+
+def test_a_phase_with_its_own_cancel_contract_is_not_unwound_by_progress(runner: JobRunner) -> None:
+    """The default: progress must NOT raise, or a phase never reaches its own cleanup (see scan_folder)."""
+    cleaned = threading.Event()
+    ticks = []
+
+    def phase(progress):
+        for i in range(1, 6):
+            if i == 2:
+                runner.cancel()  # the Stop click lands mid-phase, as it does in a real scan
+            progress(i, 5)  # must not raise, even once cancel is set
+            ticks.append(i)
+        if runner.cancel_event.is_set():
+            cleaned.set()  # stands in for scan_folder deleting the inventory it can no longer back
+
+    runner.start("sort", ["scan"], lambda ctx: ctx.run_phase("scan", phase))
+    assert runner.join(5)
+    assert ticks == [1, 2, 3, 4, 5]
+    assert cleaned.is_set()
+    assert runner.state().code == 1  # the job still ends as cancelled
+
+
+def test_a_cancelled_scan_deletes_the_inventory_it_can_no_longer_back(runner: JobRunner, tmp_path: Path) -> None:
+    """The regression behind the default above: a real scan, cancelled mid-run, must leave no stale index."""
+    roll = camera_roll(tmp_path / "roll", 40)
+    paths = runner.paths
+
+    def scan(cancel_at_first_tick: bool):
+        def body(ctx):
+            def phase(progress):
+                def prog(done, total):
+                    if cancel_at_first_tick:
+                        runner.cancel()  # the Stop click, mid-scan
+                    progress(done, total)
+
+                return scan_folder(roll, ctx.paths, on_progress=prog, cancel=ctx.cancel_event)
+
+            ctx.run_phase("scan", phase)
+
+        runner.start("sort", ["scan"], body)
+        assert runner.join(120)
+
+    scan(cancel_at_first_tick=False)
+    assert paths.inventory_file.exists() and paths.slim_file.exists() and paths.source_file.exists()
+    thumbs_before = len(list(paths.thumbs.glob("*.jpg")))
+    assert thumbs_before == 40
+
+    scan(cancel_at_first_tick=True)
+    assert runner.state().code == 1
+    # scan_folder wiped thumbs/ and mini/ before starting, so the old inventory must go with them
+    assert not paths.inventory_file.exists(), "a stale inventory survived the cancel"
+    assert not paths.slim_file.exists()
+    assert not paths.source_file.exists(), "/api/state would report the scan as done"
+    assert len(list(paths.thumbs.glob("*.jpg"))) < thumbs_before
+
+
+def test_build_sheets_stops_between_sheets_when_cancelled(tmp_path: Path) -> None:
+    """A 100k library is ~3,334 renders with no progress callback; the event is the only way to stop it."""
+    paths = Paths(root=tmp_path / "approot")
+    records = [
+        FileRecord(id=i, path=tmp_path / f"{i}.jpg", name=f"{i}.jpg", ext=".jpg", kind="photo", bytes=0, sha256="")
+        for i in range(PER_SHEET * 3)
+    ]
+    cancel = threading.Event()
+    cancel.set()
+    assert build_sheets(records, paths, cancel=cancel) == []
+    cancel.clear()
+    assert len(build_sheets(records, paths, cancel=cancel)) == 3
+
+
+def test_state_shows_progress_on_every_tick_even_when_events_are_throttled(runner: JobRunner) -> None:
+    """Spec 13.3 throttles events, not /api/state: a 2-files-a-second phase must still move the bar."""
+    ticked, go = threading.Event(), threading.Event()
+    sub = runner.subscribe()
+    sampled = []
+
+    def phase(progress):
+        for i in range(1, 4):
+            progress(i, 100_000)  # 0.5% is 500 files, so none of these is published
+            ticked.set()
+            assert go.wait(5)
+            go.clear()
+
+    runner.start("sort", ["heic"], lambda ctx: ctx.run_phase("heic", phase))
+    for _ in range(3):
+        assert ticked.wait(5)
+        ticked.clear()
+        s = runner.state()
+        sampled.append((s.phase, s.done, s.total))
+        go.set()
+    assert runner.join(5)
+    assert sampled == [("heic", 1, 100_000), ("heic", 2, 100_000), ("heic", 3, 100_000)]
+    assert [e.type for e in drain(sub)] == ["phase_started", "progress", "job_finished"]
+
+
+def test_a_dropped_subscription_ends_its_async_iteration(runner: JobRunner) -> None:
+    """Without this the SSE response never ends and the browser never reconnects."""
+    sub = runner.subscribe(maxsize=1)
+    runner.start("sort", ["scan"], lambda ctx: ctx.run_phase("scan", lambda p: p(1, 1)))
+    assert runner.join(5)
+    assert sub.closed and runner.subscriber_count == 0
+
+    async def read_all():
+        return [event async for event in sub]
+
+    assert asyncio.run(asyncio.wait_for(read_all(), 5)) == []
+
+
+def test_a_subscription_closed_while_a_reader_waits_ends_that_reader(runner: JobRunner) -> None:
+    sub = runner.subscribe()
+
+    async def read_then_close():
+        loop = asyncio.get_running_loop()
+        loop.call_later(0.1, sub.close)
+        return [event async for event in sub]
+
+    # the poll timeout returns None; the close must turn the next one into the end of the iteration
+    got = asyncio.run(asyncio.wait_for(read_then_close(), 5))
+    assert all(event is None for event in got)
+
+
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+def test_a_base_exception_in_the_body_still_ends_the_job(runner: JobRunner) -> None:
+    """KeyboardInterrupt and SystemExit (argparse in a labeller) must not brick the runner."""
+    sub = runner.subscribe()
+
+    def body(ctx):
+        raise SystemExit("photo-sorter: error: unrecognized arguments")
+
+    runner.start("sort", ["label"], body)
+    assert runner.join(5)
+    s = runner.state()
+    assert s.running is False and s.code == 1
+    assert "unrecognized arguments" in " ".join(s.log)
+    assert [e.type for e in drain(sub)] == ["log", "job_finished"]
+    runner.start("sort", ["scan"], lambda ctx: ctx.run_phase("scan", lambda p: p(1, 1)))  # not bricked
+    assert runner.join(5)
+    assert runner.state().code == 0
