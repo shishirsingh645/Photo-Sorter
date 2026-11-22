@@ -20,6 +20,7 @@ import threading
 from collections.abc import Sequence
 from pathlib import Path
 
+from photosorter.api.serve import serve
 from photosorter.config import Paths, read_json, write_json
 from photosorter.core.apply import apply_labels, check_destination, merge_labels
 from photosorter.core.categories import categories_fingerprint, load_categories, validate_categories
