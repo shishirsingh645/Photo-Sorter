@@ -297,6 +297,11 @@ def _parser() -> argparse.ArgumentParser:
     sort.add_argument("--dest", type=Path, required=True)
     sort.add_argument("--limit", type=int, default=0, help="only sort this many files, picked at random")
 
+    srv = subs.add_parser("serve", parents=[common], help="run the dashboard's server on this computer only")
+    srv.add_argument("--port", type=int, default=8765, help="the port to listen on (default: 8765)")
+    srv.add_argument("--dev", action="store_true", help="don't serve the built page; the Vite dev server does that")
+    srv.add_argument("--no-browser", action="store_true", help="don't open the dashboard in a browser")
+
     return parser
 
 
@@ -317,6 +322,10 @@ def main(argv: list[str] | None = None) -> int:
             do_apply(paths, _records(paths), args.dest)
         elif args.command == "demo":
             print(f"{build_demo(paths, args.out)} files in the demo library.")
+        elif args.command == "serve":
+            from photosorter.api.serve import serve  # not at the top: the web stack is slow to import
+
+            return serve(paths, args.port, args.dev, not args.no_browser)
         elif args.command == "sort":
             do_sort(paths, args.source, args.dest, args.limit, args.labeler)
     except (ValueError, LabelerUnavailable) as e:
