@@ -4,4 +4,4 @@ A modernized, cross-platform replica of [claude-photo-sorter](https://github.com
 
 Design and implementation plans live in [`docs/superpowers/`](docs/superpowers/).
 
-**Status:** the core engine is nearly complete — scanning, duplicate detection, contact sheets, the Claude labeller, folder building and the demo roll are all built and tested (181 tests). The command-line interface is the last piece. The local web server and the dashboard are specified but not yet built.
+**Status:** the core engine is complete — scanning, duplicate detection, contact sheets, the Claude labeller, folder building, the demo roll and the command-line interface are all built and tested. The local web server is underway: it answers `/api/state` and binds to loopback only. The dashboard is specified but not yet built. 251 tests pass.
