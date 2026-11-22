@@ -20,7 +20,6 @@ import threading
 from collections.abc import Sequence
 from pathlib import Path
 
-from photosorter.api.serve import serve
 from photosorter.config import Paths, read_json, write_json
 from photosorter.core.apply import apply_labels, check_destination, merge_labels
 from photosorter.core.categories import categories_fingerprint, load_categories, validate_categories
@@ -324,6 +323,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "demo":
             print(f"{build_demo(paths, args.out)} files in the demo library.")
         elif args.command == "serve":
+            from photosorter.api.serve import serve  # not at the top: the web stack is slow to import
+
             return serve(paths, args.port, args.dev, not args.no_browser)
         elif args.command == "sort":
             do_sort(paths, args.source, args.dest, args.limit, args.labeler)

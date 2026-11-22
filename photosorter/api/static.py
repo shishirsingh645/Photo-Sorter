@@ -33,9 +33,13 @@ class _Files(StaticFiles):
 
     async def get_response(self, path, scope):
         resp = await super().get_response(path, scope)
-        # JSON and HTML change under the page's feet; images and videos are named by id and can be cached.
+        # JSON and HTML change under the page's feet. Everything else (previews) lives at ids that are positional
+        # indexes, so the same URL is a different photo after a rescan: no-cache makes the browser revalidate
+        # (cheap 304s) instead of applying heuristic freshness and showing the old photo.
         if self._always or path.endswith((".json", ".html")) or path in ("", "."):
             resp.headers["Cache-Control"] = "no-store"
+        else:
+            resp.headers["Cache-Control"] = "no-cache"
         return resp
 
 
@@ -58,4 +62,6 @@ def mount_frontend(app: FastAPI, paths: Paths, dev: bool = False) -> None:
         app.mount("/", _Files(directory=dist, html=True), name="web")
     else:
         page = DEV_PAGE if dev else NO_BUILD_PAGE
-        app.add_api_route("/", lambda: HTMLResponse(page, headers=NO_STORE), include_in_schema=False)
+        app.add_api_route(
+            "/", lambda: HTMLResponse(page, headers=NO_STORE), methods=["GET", "HEAD"], include_in_schema=False
+        )
