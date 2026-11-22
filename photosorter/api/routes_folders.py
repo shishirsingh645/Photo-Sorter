@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Literal
 
@@ -10,6 +11,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from photosorter.config import Paths, read_json, write_json
 from photosorter.core.categories import (
+    LabelCacheInUse,
     categories_fingerprint,
     clear_label_cache,
     load_categories,
@@ -72,12 +74,21 @@ def peek(body: PeekIn, request: Request) -> dict:
     }
 
 
+_pick_lock = threading.Lock()
+
+
 @router.post("/api/pick")
 def pick(body: PickIn) -> dict:
     available, reason = picker_available()
     if not available:
         return {"path": None, "reason": reason}
-    chosen = choose_folder(body.prompt)
+    # Each open dialog holds a thread-pool worker for up to five minutes; a second one is never useful.
+    if not _pick_lock.acquire(blocking=False):
+        raise HTTPException(409, "A folder window is already open. Please use it, or close it first.")
+    try:
+        chosen = choose_folder(body.prompt)
+    finally:
+        _pick_lock.release()
     return {"path": str(chosen) if chosen else None, "reason": ""}
 
 
@@ -111,6 +122,11 @@ def open_it(body: OpenIn, request: Request) -> dict:
     return {"ok": True}
 
 
+def _safe_label(label: str) -> bool:
+    """A label becomes one folder name inside the destination, so it must not be a path."""
+    return bool(label.strip(" .")) and not any(ch in label for ch in "/\\:")
+
+
 class CategoriesIn(BaseModel):
     categories: list[CategoryIn]
 
@@ -119,22 +135,42 @@ class CategoriesIn(BaseModel):
 def set_categories(body: CategoriesIn, request: Request) -> dict:
     paths: Paths = request.app.state.paths
     cats = [Category(**c.model_dump()) for c in body.categories]
+    for c in cats:
+        if not _safe_label(c.label):
+            raise HTTPException(
+                400,
+                f'"{c.label}" cannot be used as a folder name. Use a plain name without a backslash, '
+                "slash or colon, and not empty or only dots.",
+            )
     try:
         validate_categories(cats)  # before writing: a set with no video folder would fail quietly at apply
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
+    marker = paths.categories_fingerprint_file
+    # A marker that does not match the OLD file (e.g. poisoned by a failed clear) means the cache is untrusted.
+    untrusted = (
+        marker.exists()
+        and paths.categories_file.exists()
+        and marker.read_text(encoding="utf-8").strip() != categories_fingerprint(paths)
+    )
+    changed = [c.to_dict() for c in load_categories(paths)] != [c.to_dict() for c in cats]
     save_categories(paths, cats)
-    # Unconditional: this route is only called because the list changed, so a missing or equal fingerprint
-    # must not be read as "nothing changed". (The CLI's keep-and-stamp rule is for caches from older installs.)
-    clear_label_cache(paths)
+    try:
+        # Cleared on a real difference whether or not a marker exists (the route knows the list changed).
+        # An identical re-save keeps the cache: a page may well POST the whole list on every dialog close.
+        if changed or untrusted:
+            clear_label_cache(paths)
+    except LabelCacheInUse as e:
+        raise HTTPException(409, str(e)) from e  # the marker is poisoned, deliberately not restamped
     paths.labels.mkdir(parents=True, exist_ok=True)
-    paths.categories_fingerprint_file.write_text(categories_fingerprint(paths), encoding="utf-8")
+    marker.write_text(categories_fingerprint(paths), encoding="utf-8")
     return {"ok": True, "count": len(cats)}
 
 
 class MoveIn(BaseModel):
     id: int
     key: str
+    sha: str | None = None  # the file's sha256 as the page knows it; same check and sentence as Task 5's /api/file
 
 
 @router.post("/api/move")
@@ -148,6 +184,13 @@ def move(body: MoveIn, request: Request) -> dict:
     slim = read_json(paths.slim_file, [])
     if not isinstance(slim, list) or not any(isinstance(r, dict) and r.get("id") == body.id for r in slim):
         raise HTTPException(404, "That photo is not in the last scan. Reload the page and try again.")
+    if body.sha is not None:
+        # shortcut: reads the whole inventory (~40MB at 100k files) per move, and only when the page sent a sha.
+        # Upgrade to the cached inventory Task 5 keeps on app.state if hand moves become frequent.
+        inventory = read_json(paths.inventory_file, [])
+        rec = next((r for r in inventory if isinstance(r, dict) and r.get("id") == body.id), None)
+        if rec is None or rec.get("sha256") != body.sha:
+            raise HTTPException(409, "The folder was rescanned since this page loaded. Reload the page.")
     try:
         overrides = read_json(paths.overrides_file, {}, strict=True)
     except (ValueError, OSError) as e:  # never overwrite a damaged file: it may hold the user's earlier moves
@@ -156,7 +199,10 @@ def move(body: MoveIn, request: Request) -> dict:
         raise HTTPException(409, "Your saved moves file is damaged, so this move was not saved.")
     overrides[str(body.id)] = body.key
     write_json(paths.overrides_file, overrides)
-    labels = read_json(paths.labels_file, {})
+    try:
+        labels = read_json(paths.labels_file, {}, strict=True)
+    except (ValueError, OSError):
+        return {"ok": True}  # derived data: leave a damaged file alone; the move itself is already stored
     if isinstance(labels, dict):  # keep the merged labels in step so the page shows the move straight away
         labels[str(body.id)] = body.key
         write_json(paths.labels_file, labels)

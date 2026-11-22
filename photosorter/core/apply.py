@@ -48,7 +48,14 @@ class ApplyResult:
 
 
 def folder_name(cat: Category) -> str:
-    return cat.label.replace("&", "and").replace("/", "-")
+    """One folder directly inside the destination: separators and drive colons become '-', and a name
+    that is empty or only dots (the destination itself, or its parent) is refused."""
+    name = cat.label.replace("&", "and")
+    for ch in "/\\:":
+        name = name.replace(ch, "-")
+    if not name.strip(" ."):
+        raise ValueError(f'"{cat.label}" cannot be used as a folder name. Please give the folder a real name.')
+    return name
 
 
 def check_destination(source: Path, dest: Path) -> None:

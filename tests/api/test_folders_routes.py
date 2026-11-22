@@ -282,3 +282,137 @@ def test_move_refuses_to_overwrite_a_damaged_overrides_file(client, paths):
     r = client.post("/api/move", json={"id": 1, "key": "food"})
     assert r.status_code == 409
     assert paths.overrides_file.read_text(encoding="utf-8") == "{not json"
+
+
+# ---- round 4 ----
+
+def test_saving_an_identical_list_keeps_the_cache_even_if_the_formatting_differs(client, paths):
+    from photosorter.core.categories import categories_fingerprint
+
+    same = _cats(paths)
+    assert client.post("/api/categories", json={"categories": same}).status_code == 200
+    paths.labels.mkdir(parents=True, exist_ok=True)
+    (paths.labels / "batch_0.json").write_text("{}", encoding="utf-8")
+    write_json(paths.labels_file, {"0": "food"})
+    paths.categories_fingerprint_file.write_text(categories_fingerprint(paths), encoding="utf-8")
+    paths.categories_file.write_text(json.dumps(same, indent=8), encoding="utf-8")  # same list, new bytes
+    paths.categories_fingerprint_file.write_text(categories_fingerprint(paths), encoding="utf-8")
+    assert client.post("/api/categories", json={"categories": same}).status_code == 200
+    assert (paths.labels / "batch_0.json").exists() and paths.labels_file.exists()
+    assert paths.categories_fingerprint_file.read_text(encoding="utf-8").strip() == categories_fingerprint(paths)
+
+
+def _locked_rmtree(monkeypatch):
+    """rmtree that deletes the marker (as a real walk may) then fails on a file a running sort holds."""
+    import shutil
+
+    def fake(path, *a, **k):
+        (Path(path) / ".categories").unlink(missing_ok=True)
+        raise PermissionError("claude_01.json is in use")
+
+    monkeypatch.setattr(shutil, "rmtree", fake)
+
+
+def test_a_failed_clear_poisons_the_marker_and_never_restamps(client, paths, monkeypatch):
+    from photosorter.core.categories import categories_fingerprint
+
+    paths.labels.mkdir(parents=True)
+    (paths.labels / "claude_01.json").write_text("{}", encoding="utf-8")
+    paths.categories_fingerprint_file.write_text(categories_fingerprint(paths), encoding="utf-8")
+    _locked_rmtree(monkeypatch)
+    r = client.post("/api/categories", json={"categories": _cats(paths) + [_cat("brand_new")]})
+    assert r.status_code == 409 and "in use" in r.json()["detail"] and "save again" in r.json()["detail"]
+    assert (paths.labels / "claude_01.json").exists()
+    marker = paths.categories_fingerprint_file.read_text(encoding="utf-8").strip()
+    assert marker and marker != categories_fingerprint(paths)  # the survivors must not look valid
+    monkeypatch.undo()
+    # the CLI's next gate sees a mismatch and clears instead of adopting the survivors
+    from photosorter.__main__ import _drop_stale_labels
+
+    _drop_stale_labels(paths)
+    assert not (paths.labels / "claude_01.json").exists()
+
+
+def test_saving_again_after_a_failed_clear_still_clears(client, paths, monkeypatch):
+    paths.labels.mkdir(parents=True)
+    (paths.labels / "claude_01.json").write_text("{}", encoding="utf-8")
+    _locked_rmtree(monkeypatch)
+    new = _cats(paths) + [_cat("brand_new")]
+    assert client.post("/api/categories", json={"categories": new}).status_code == 409
+    monkeypatch.undo()
+    assert client.post("/api/categories", json={"categories": new}).status_code == 200  # identical, but poisoned
+    assert not (paths.labels / "claude_01.json").exists()
+
+
+def test_clear_label_cache_unit(paths, monkeypatch):
+    import pytest
+
+    from photosorter.core.categories import LabelCacheInUse, categories_fingerprint, clear_label_cache
+
+    assert clear_label_cache(paths) is False
+    paths.labels.mkdir(parents=True)
+    (paths.labels / "a.json").write_text("{}", encoding="utf-8")
+    write_json(paths.labels_file, {})
+    assert clear_label_cache(paths) is True
+    assert not paths.labels.exists() and not paths.labels_file.exists()
+    paths.labels.mkdir(parents=True)
+    (paths.labels / "a.json").write_text("{}", encoding="utf-8")
+    _locked_rmtree(monkeypatch)
+    with pytest.raises(LabelCacheInUse):
+        clear_label_cache(paths)
+    assert paths.categories_fingerprint_file.read_text(encoding="utf-8").strip() != categories_fingerprint(paths)
+
+
+def test_categories_rejects_labels_that_could_leave_the_destination(client, paths):
+    before = paths.categories_file.read_bytes()
+    bad_labels = ("", "   ", "..", "...", "..B..Bx", "KidsBSports", "a/b", "C:BUsersBPublicBEvil", "C:x")
+    for bad in (b.replace("B", chr(92)) for b in bad_labels):
+        cats = [{**_cat("p"), "label": bad}, _cat("v", "video")]
+        r = client.post("/api/categories", json={"categories": cats})
+        assert r.status_code == 400, repr(bad)
+        assert "name" in r.json()["detail"]
+    assert paths.categories_file.read_bytes() == before
+
+
+def test_pick_refuses_a_second_dialog_while_one_is_open(client, monkeypatch):
+    import threading
+
+    entered, release = threading.Event(), threading.Event()
+
+    def slow(prompt):
+        entered.set()
+        release.wait(10)
+        return None
+
+    monkeypatch.setattr(R + "choose_folder", slow)
+    monkeypatch.setattr(R + "picker_available", lambda: (True, ""))
+    first = {}
+    t = threading.Thread(target=lambda: first.update(r=client.post("/api/pick", json={"prompt": "x"})))
+    t.start()
+    assert entered.wait(10)
+    r = client.post("/api/pick", json={"prompt": "x"})
+    assert r.status_code == 409 and "already open" in r.json()["detail"]
+    release.set()
+    t.join(10)
+    assert first["r"].status_code == 200
+    assert client.post("/api/pick", json={"prompt": "x"}).status_code == 200  # the lock was released
+
+
+def test_move_with_a_sha_that_no_longer_matches_is_a_409(client, paths):
+    _scan_ids(paths)
+    write_json(paths.inventory_file, [{"id": i, "path": "p", "sha256": f"sha{i}"} for i in range(3)])
+    r = client.post("/api/move", json={"id": 1, "key": "food", "sha": "other"})
+    assert r.status_code == 409
+    assert r.json()["detail"] == "The folder was rescanned since this page loaded. Reload the page."
+    assert not paths.overrides_file.exists()
+    assert client.post("/api/move", json={"id": 1, "key": "food", "sha": "sha1"}).status_code == 200
+    assert json.loads(paths.overrides_file.read_text(encoding="utf-8")) == {"1": "food"}
+
+
+def test_move_leaves_a_damaged_labels_file_alone_but_still_saves_the_move(client, paths):
+    _scan_ids(paths)
+    paths.labels_file.parent.mkdir(parents=True, exist_ok=True)
+    paths.labels_file.write_text("{broken", encoding="utf-8")
+    assert client.post("/api/move", json={"id": 1, "key": "food"}).status_code == 200
+    assert json.loads(paths.overrides_file.read_text(encoding="utf-8")) == {"1": "food"}
+    assert paths.labels_file.read_text(encoding="utf-8") == "{broken"

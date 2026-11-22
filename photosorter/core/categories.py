@@ -38,6 +38,14 @@ def catch_all_for(cats: list[Category], kind: str) -> Category | None:
     return next((c for c in reversed(cats) if c.kind == kind), None)
 
 
+class LabelCacheInUse(ValueError):
+    """The cached labels could not all be deleted, probably because a running sort holds one open."""
+
+
+#: Written over the marker when a clear fails. It matches no real fingerprint, so the next gate clears again.
+POISON = "clear-failed"
+
+
 def clear_label_cache(paths: Paths) -> bool:
     """Throw away every cached label batch, and the merged labels built from them. True if a cache existed.
 
@@ -45,9 +53,23 @@ def clear_label_cache(paths: Paths) -> bool:
     about are in it, while an id is only a file's position in the scanned list. So the batches
     of one library fit the next library's ids exactly, and would be handed back as its answers.
     Anything that changes what was scanned, or the folders to sort into, has to clear them.
+
+    The fingerprint marker lives inside labels/, so a walk that fails part-way may already have
+    deleted it, leaving survivors that the "no marker = older install" rule would adopt as valid.
+    On failure the marker is overwritten with a value that matches nothing, and LabelCacheInUse is raised.
     """
     existed = paths.labels.exists()
-    if existed:
-        shutil.rmtree(paths.labels)
-    paths.labels_file.unlink(missing_ok=True)
+    try:
+        paths.labels_file.unlink(missing_ok=True)
+        if existed:
+            shutil.rmtree(paths.labels)
+    except OSError as e:
+        try:
+            paths.labels.mkdir(parents=True, exist_ok=True)
+            paths.categories_fingerprint_file.write_text(POISON, encoding="utf-8")
+        except OSError:
+            pass  # shortcut: if even the marker is unwritable nothing more can be done here; the error still raises
+        raise LabelCacheInUse(
+            "Some cached labels are in use, probably by a running sort. Stop it and save again."
+        ) from e
     return existed
