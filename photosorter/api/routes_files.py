@@ -16,7 +16,9 @@ Upgrade by validating an open handle instead of using FileResponse.
 
 from __future__ import annotations
 
+import asyncio
 import io
+import weakref
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -154,21 +156,42 @@ def get_record(request: Request, file_id: int, sha: str | None = None) -> dict:
     return rec
 
 
-# A plain `def`: FastAPI runs it in a worker thread, so decoding a big HEIC does not stall the event loop.
-# shortcut: anyio's default limiter is 40 threads, so up to 40 conversions can be in flight at once, each
-# bounded to MAX_DECODE_PIXELS each; add a semaphore if the browse grid ever pages that many HEICs.
-@router.get("/api/file/{file_id}")
-def get_file(request: Request, file_id: int, sha: str | None = None):
+def _locate(request: Request, file_id: int, sha: str | None) -> Path:
+    """Everything that touches the inventory or the disk before serving; runs in a worker thread."""
     rec, root = _record(request, file_id, sha)
     real = contained(rec.get("path"), root)
-    target = long_path(real)
-    if not target.is_file():
+    if not long_path(real).is_file():
         raise HTTPException(404, "That file is no longer on disk. It may have moved since the scan.")
+    return real
+
+
+# Decodes allowed at once. Measured peak working set: ~630MB for a 102MP RGB TIFF, so ~790MB at the 128MP
+# ceiling; 2 at a time bounds a worst case to ~1.6GB and a phone-photo (12MP, ~100MB) grid to ~200MB. The
+# 40-thread anyio default would allow 40x that. Waiters queue (a late tile is fine, a 503 hole is not).
+CONCURRENT_CONVERSIONS = 2
+_gates: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+def _gate() -> asyncio.Semaphore:
+    # One per event loop (an asyncio.Semaphore binds to the loop it first waits on); the server has one.
+    loop = asyncio.get_running_loop()
+    if loop not in _gates:
+        _gates[loop] = asyncio.Semaphore(CONCURRENT_CONVERSIONS)
+    return _gates[loop]
+
+
+# `async def` so a request waiting for the gate holds no worker thread: only the lookup and the decode are
+# offloaded. Unconverted files (JPEG, MOV) stream without ever touching the gate.
+@router.get("/api/file/{file_id}")
+async def get_file(request: Request, file_id: int, sha: str | None = None):
+    real = await asyncio.to_thread(_locate, request, file_id, sha)
     ext = real.suffix.lower()
+    if ext not in CONVERT_EXTS:
+        return QuietFileResponse(long_path(real), media_type="video/mp4" if ext == ".mov" else None)
     try:
-        if ext in CONVERT_EXTS:
-            return Response(_convert(real), media_type="image/jpeg")
-        return QuietFileResponse(target, media_type="video/mp4" if ext == ".mov" else None)
+        async with _gate():
+            data = await asyncio.to_thread(_convert, real)
+        return Response(data, media_type="image/jpeg")
     except FileNotFoundError:
         raise HTTPException(404, "That file is no longer on disk. It may have moved since the scan.") from None
     except Exception as e:  # Pillow raises many types for a damaged image; the user needs one sentence
