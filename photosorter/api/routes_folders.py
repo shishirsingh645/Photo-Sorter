@@ -3,18 +3,30 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
-from photosorter.config import Paths, read_json
+from photosorter.__main__ import _drop_stale_labels  # the CLI's own cache invalidation: one rule, not two
+from photosorter.config import Paths, read_json, write_json
+from photosorter.core.categories import load_categories, save_categories, validate_categories
 from photosorter.core.peek import peek_folder
+from photosorter.models import Category
 from photosorter.picker import choose_folder, picker_available
 from photosorter.platform import open_folder, reveal_in_file_manager
 
 router = APIRouter()
 
 # Plain `def` routes: FastAPI runs them in its thread pool, so a slow peek or a dialog never blocks the event loop.
+
+
+class CategoryIn(BaseModel):
+    key: str = Field(min_length=1)
+    kind: Literal["photo", "video"]
+    label: str
+    emoji: str
+    rule: str
 
 
 class PeekIn(BaseModel):
@@ -91,4 +103,52 @@ def open_it(body: OpenIn, request: Request) -> dict:
     if rec is None or not isinstance(rec.get("path"), str):
         raise HTTPException(404, "That file is not in the last scan.")
     reveal_in_file_manager(Path(rec["path"]))
+    return {"ok": True}
+
+
+class CategoriesIn(BaseModel):
+    categories: list[CategoryIn]
+
+
+@router.post("/api/categories")
+def set_categories(body: CategoriesIn, request: Request) -> dict:
+    paths: Paths = request.app.state.paths
+    cats = [Category(**c.model_dump()) for c in body.categories]
+    try:
+        validate_categories(cats)  # before writing: a set with no video folder would fail quietly at apply
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    save_categories(paths, cats)
+    _drop_stale_labels(paths)  # labels made for the old folder list must not be reused
+    return {"ok": True, "count": len(cats)}
+
+
+class MoveIn(BaseModel):
+    id: int
+    key: str
+
+
+@router.post("/api/move")
+def move(body: MoveIn, request: Request) -> dict:
+    paths: Paths = request.app.state.paths
+    if body.key not in {c.key for c in load_categories(paths)}:
+        # merge_labels silently ignores an unknown override key, which would drop the hand move at apply time
+        raise HTTPException(400, f'There is no folder called "{body.key}".')
+    # shortcut: ids are positions in the last scan, so a page left open across a rescan can name a different
+    # photo and this cannot tell; upgrade by having the page send the file name and checking it here.
+    slim = read_json(paths.slim_file, [])
+    if not isinstance(slim, list) or not any(isinstance(r, dict) and r.get("id") == body.id for r in slim):
+        raise HTTPException(404, "That photo is not in the last scan. Reload the page and try again.")
+    try:
+        overrides = read_json(paths.overrides_file, {}, strict=True)
+    except (ValueError, OSError) as e:  # never overwrite a damaged file: it may hold the user's earlier moves
+        raise HTTPException(409, f"Your saved moves file is damaged, so this move was not saved: {e}") from e
+    if not isinstance(overrides, dict):
+        raise HTTPException(409, "Your saved moves file is damaged, so this move was not saved.")
+    overrides[str(body.id)] = body.key
+    write_json(paths.overrides_file, overrides)
+    labels = read_json(paths.labels_file, {})
+    if isinstance(labels, dict):  # keep the merged labels in step so the page shows the move straight away
+        labels[str(body.id)] = body.key
+        write_json(paths.labels_file, labels)
     return {"ok": True}
