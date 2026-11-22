@@ -4,11 +4,11 @@ Every refusal is a 400 carrying `{"error": "<plain words>"}`, and is made BEFORE
 dashboard's Start button must be told "that folder is not there" rather than show a job that dies a
 second later. One job at a time is the runner's rule - a second Start is this error, never a queue.
 
-The phases are the CLI's phases in the CLI's order (spec 7.1), calling the same `core` functions. They
-differ only in where they report - `ctx.log` and progress events instead of stdout - and in that they
-can be stopped. Which phases may be interrupted and which must be handed `ctx.cancel_event` is
-`JobContext.run_phase`'s rule, not this module's: a scan unwound past its own cleanup would leave an
-inventory of records pointing at previews it had already wiped.
+The phases are the CLI's phases in the CLI's order (spec 7.1), over the same `core` functions and the
+same sentences; what differs is only where they report - `ctx.log` and progress events instead of
+stdout - and that they can be stopped. Which phases may be interrupted and which must be handed
+`ctx.cancel_event` is `JobContext.run_phase`'s rule, not this module's: a scan unwound past its own
+cleanup would leave an inventory of records pointing at previews it had already wiped.
 """
 
 from __future__ import annotations
@@ -20,16 +20,6 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-# The CLI is the pipeline's reference implementation (spec 7.1): its labeller table, its 95% tolerance,
-# its rules for what was scanned. Imported rather than copied, so the two can never drift apart.
-from photosorter.__main__ import (
-    _ROOT_AND_SOURCE_OVERLAP,
-    LABEL_TOLERANCE,
-    _cats,
-    _labeler,
-    _records,
-    _scanned_source,
-)
 from photosorter.api.routes_state import build_state
 from photosorter.api.schemas import AppState
 from photosorter.config import Paths, read_json, write_json
@@ -37,15 +27,31 @@ from photosorter.core.apply import (
     JEV_MIN_CONFIDENCE,
     ApplyResult,
     apply_labels,
+    apply_summary,
     check_destination,
     merge_labels,
 )
-from photosorter.core.categories import clear_label_cache, drop_stale_labels
-from photosorter.core.dupes import DuplicateResult, find_duplicates
+from photosorter.core.categories import (
+    FOLDERS_CHANGED_CLEARED,
+    NEW_SOURCE_CLEARED,
+    clear_label_cache,
+    drop_stale_labels,
+    require_categories,
+)
+from photosorter.core.dupes import DuplicateResult, dupes_summary, find_duplicates
 from photosorter.core.labelers import find_jev_key
-from photosorter.core.labelers.base import LabelerUnavailable
+from photosorter.core.labelers.base import LabelerUnavailable, check_label_coverage, label_summary
+from photosorter.core.labelers.choice import make_labeler
 from photosorter.core.labelers.claude import NOT_INSTALLED
-from photosorter.core.scan import scan_folder, scan_is_current
+from photosorter.core.scan import (
+    check_source,
+    read_inventory,
+    scan_folder,
+    scan_is_current,
+    scan_skipped_summary,
+    scan_summary,
+    scanned_source,
+)
 from photosorter.jobs import JobBusy, JobContext, JobRunner
 from photosorter.models import DupeGroup, FileRecord
 from photosorter.platform import find_claude
@@ -65,8 +71,8 @@ NOTHING_LABELLED = "Nothing has a folder yet, so there is nothing to copy. Run t
 #: Everything a refusal can arrive as. OSError included: an unusable path carries a sentence, not a bug.
 REFUSED = (ValueError, LabelerUnavailable, JobBusy, OSError)
 
-#: The CLI's three (`_labeler`): claude asks the user's Claude Code, jev reads work/jev.json, and stub
-#: needs nothing at all, so the pipeline can be exercised end to end without either.
+#: The three `make_labeler` answers to: claude asks the user's Claude Code, jev reads work/jev.json, and
+#: stub needs nothing at all, so the pipeline can be exercised end to end without either.
 LabelerName = Literal["claude", "jev", "stub"]
 StepName = Literal["scan", "dupes", "label", "apply"]
 
@@ -97,18 +103,15 @@ def _scan_phase(ctx: JobContext, source: Path, limit: int) -> list[FileRecord]:
     # leaves. A batch is cached under a batch number, and an id is only a file's position in the list,
     # so another library's finished batches would fit this one's ids exactly and be handed back as answers.
     if clear_label_cache(ctx.paths):
-        ctx.log("A different set of photos is being looked at, so earlier labels were cleared.")
+        ctx.log(NEW_SOURCE_CLEARED)
     # cancel_event, not interrupt: scan_folder wipes thumbs/ and mini/ up front and deletes the inventory
     # on cancel. Unwinding past that cleanup would leave an inventory pointing at previews that are gone.
     records = cast(
         list[FileRecord],
         ctx.run_phase("scan", lambda p: scan_folder(source, ctx.paths, limit, p, ctx.cancel_event)),
     )
-    photos = sum(1 for r in records if r.kind == "photo")
-    ctx.log(f"{len(records)} files: {photos} photos and {len(records) - photos} videos.")
-    unreadable = sum(1 for r in records if r.error)
-    if unreadable:
-        ctx.log(f"{unreadable} of them could not be opened. They are kept and put aside for you to look at.")
+    for line in scan_summary(records):
+        ctx.log(line)
     return records
 
 
@@ -118,37 +121,36 @@ def _dupes_phase(ctx: JobContext, records: list[FileRecord]) -> None:
     result = cast(
         DuplicateResult, ctx.run_phase("dupes", lambda p: find_duplicates(records, ctx.paths, p), interrupt=True)
     )
-    freed = sum(g.freed for g in result.groups)
-    copies = sum(len(g.dupes) for g in result.groups)
-    ctx.log(f"{len(result.groups)} sets of duplicates, {copies} extra copies, about {freed // 1_000_000} MB.")
-    if result.capped_records:
-        ctx.log(f"{result.capped_records} files were too alike to compare with everything, so a few may be missed.")
+    for line in dupes_summary(result):
+        ctx.log(line)
 
 
 def _label_phase(ctx: JobContext, records: list[FileRecord], labeler_name: str) -> None:
-    cats = _cats(ctx.paths)
+    if _stopped(ctx):
+        return
+    cats = require_categories(ctx.paths)
     if drop_stale_labels(ctx.paths):
-        ctx.log("The list of folders changed, so labels from the old list were cleared.")
-    labeler = _labeler(labeler_name)
+        ctx.log(FOLDERS_CHANGED_CLEARED)
+    labeler = make_labeler(labeler_name)
     labels = cast(
         dict[str, str],
         ctx.run_phase("label", lambda p: labeler.label(records, cats, ctx.paths, p, ctx.cancel_event)),
     )
-    if ctx.cancel_event.is_set():
+    if _stopped(ctx):
         # A stop is not a labelling failure, and half the answers are not a result: the finished batches
         # are already cached by the labeller, so a later run resumes from them.
         return
-    # Spec 7.2: the phase may fail partially. Above the tolerance the rest fall through to catch-alls.
-    if records and len(labels) < LABEL_TOLERANCE * len(records):
-        raise ValueError(
-            f"Only {len(labels)} of {len(records)} files could be given a folder, and at least "
-            f"{int(LABEL_TOLERANCE * 100)}% are needed. Please run the labelling again; finished work is kept."
-        )
+    check_label_coverage(labels, records)  # spec 7.2, the same gate and sentence the CLI uses
     write_json(ctx.paths.labels_file, labels)
-    ctx.log(f"{len(labels)} of {len(records)} files have a folder.")
+    ctx.log(label_summary(labels, records))
 
 
 def _apply_phase(ctx: JobContext, records: list[FileRecord], dest: Path) -> None:
+    # Before the labels are read, not after: a sort stopped during labelling has no labels.json, and
+    # "Nothing has a folder yet" would then be the last word the dashboard shows about a job the user
+    # stopped on purpose. The runner says "Stopped at your request." for a body that just returns.
+    if _stopped(ctx):
+        return
     paths = ctx.paths
     labels = read_json(paths.labels_file)
     if not isinstance(labels, dict):
@@ -158,12 +160,12 @@ def _apply_phase(ctx: JobContext, records: list[FileRecord], dest: Path) -> None
         labels,
         read_json(paths.jev_file, default={}, strict=True) or {},
         read_json(paths.overrides_file, default={}, strict=True) or {},
-        _cats(paths),
+        require_categories(paths),
     )
     dupes = [DupeGroup.from_dict(d) for d in read_json(paths.dupes_file, default=[], strict=True) or []]
     # `source` is the folder that was actually scanned, read from source.json - never the request's, and
     # never a record's parent. It is what makes "a destination inside the photos folder" refusable.
-    source = _scanned_source(paths)
+    source = scanned_source(paths)
 
     def copy(progress):
         # cancel, not interrupt: apply_labels stops between files, after the one it is copying, so the
@@ -174,12 +176,16 @@ def _apply_phase(ctx: JobContext, records: list[FileRecord], dest: Path) -> None
         )  # fmt: skip
 
     result = cast(ApplyResult, ctx.run_phase("apply", copy))
-    if ctx.cancel_event.is_set():
+    if _stopped(ctx):
         return  # a part-copied destination is not a sorted one, so it is not recorded as one
     _record_sorted(paths, result.dest)
-    ctx.log(f"{result.copied} files copied into {result.dest}.")
-    if result.unsorted:
-        ctx.log(f"{result.unsorted} files fitted no folder and are in _Review/unsorted for you to look at.")
+    for line in apply_summary(result):
+        ctx.log(line)
+
+
+def _stopped(ctx: JobContext) -> bool:
+    """True once Stop has been pressed. A phase that sees it returns instead of reporting its own trouble."""
+    return ctx.cancel_event.is_set()
 
 
 def _record_sorted(paths: Paths, dest: Path) -> None:
@@ -211,16 +217,6 @@ def _folder(source: str | None) -> Path:
     return Path(source)
 
 
-def _check_source(paths: Paths, source: Path) -> None:
-    if not source.is_dir():
-        raise ValueError(f'"{source}" is not a folder we can open. Please choose a folder that exists.')
-    # The previews a scan writes inside the app's own folder would be read back as photos by the next one.
-    try:
-        check_destination(source, paths.root)
-    except ValueError:
-        raise ValueError(_ROOT_AND_SOURCE_OVERLAP) from None
-
-
 def _check_labeler(paths: Paths, name: str) -> None:
     """Checked before the job starts: a labeller that cannot run must not cost a whole scan first."""
     if name == "claude" and find_claude() is None:
@@ -239,24 +235,24 @@ def _one_phase(paths: Paths, body: RunIn):
     """Validate `body` for its one step and return the job body that runs that step alone."""
     if body.step == "scan":
         source = _folder(body.source)
-        _check_source(paths, source)
+        check_source(source, paths)
         return lambda ctx: _scan_phase(ctx, source, body.limit)
     if body.step == "dupes":
         _check_scanned(paths)
-        return lambda ctx: _dupes_phase(ctx, _records(ctx.paths))
+        return lambda ctx: _dupes_phase(ctx, read_inventory(ctx.paths))
     if body.step == "label":
         _check_scanned(paths)
-        _cats(paths)  # an empty or broken folder list is a refusal, not an hour of labelling
+        require_categories(paths)  # an empty or broken folder list is a refusal, not an hour of labelling
         _check_labeler(paths, body.labeler)
-        return lambda ctx: _label_phase(ctx, _records(ctx.paths), body.labeler)
+        return lambda ctx: _label_phase(ctx, read_inventory(ctx.paths), body.labeler)
     _check_scanned(paths)
     if not body.dest:
         raise ValueError("Say which folder to copy the sorted photos into.")
     dest = Path(body.dest)
     if not paths.labels_file.exists():
         raise ValueError(NOTHING_LABELLED)
-    check_destination(_scanned_source(paths), dest)
-    return lambda ctx: _apply_phase(ctx, _records(ctx.paths), dest)
+    check_destination(scanned_source(paths), dest)
+    return lambda ctx: _apply_phase(ctx, read_inventory(ctx.paths), dest)
 
 
 # --- the routes -----------------------------------------------------------------------------------
@@ -268,11 +264,11 @@ def sort(body: SortIn, request: Request) -> AppState | JSONResponse:
     try:
         paths, runner = _server(request)
         source, dest = Path(body.source), Path(body.dest)
-        _check_source(paths, source)
+        check_source(source, paths)
         # Checked now, not at the end: on a large library the labelling runs for an hour, and being told
         # only then that the destination or the folder list is wrong wastes all of it.
         check_destination(source, dest)
-        _cats(paths)
+        require_categories(paths)
         _check_labeler(paths, body.labeler)
         rescan = not scan_is_current(paths, source, body.limit)
         phases = (["scan"] if rescan else []) + ["dupes", "label", "apply"]
@@ -281,8 +277,8 @@ def sort(body: SortIn, request: Request) -> AppState | JSONResponse:
             if rescan:
                 records = _scan_phase(ctx, source, body.limit)
             else:
-                records = _records(ctx.paths)
-                ctx.log(f"{len(records)} files were already looked at, so that step is skipped.")
+                records = read_inventory(ctx.paths)
+                ctx.log(scan_skipped_summary(records))
             _dupes_phase(ctx, records)
             _label_phase(ctx, records, body.labeler)
             _apply_phase(ctx, records, dest)
@@ -315,13 +311,13 @@ def cancel(request: Request) -> AppState | JSONResponse:
     return build_state(paths, runner)
 
 
-@router.get("/api/labels")
+@router.get("/api/labels", response_model=dict[str, str])
 def get_labels(request: Request) -> dict[str, str]:
     """Spec 7.4: the labels written SO FAR, so a half-finished labelling run is visible live.
 
-    The Claude batches on disk in sorted filename order, then Jev's answers at or above its confidence
-    bar - the first two steps of the apply merge (spec 7.3), which is what the page animates against.
-    A damaged file is skipped rather than allowed to blank the live view.
+    The Claude batches on disk in sorted filename order, then Jev's answer wherever Claude has none or
+    Jev is confident - the first two steps of the apply merge (spec 7.3), so what the page animates is
+    what the sort will actually do. A damaged file is skipped rather than allowed to blank the live view.
     """
     paths: Paths = request.app.state.paths
     labels: dict[str, str] = {}
@@ -335,6 +331,8 @@ def get_labels(request: Request) -> dict[str, str]:
             if not isinstance(answer, dict) or not isinstance(answer.get("key"), str):
                 continue
             confidence = answer.get("confidence", 0)
-            if isinstance(confidence, int | float) and confidence >= JEV_MIN_CONFIDENCE:
+            unsure = not isinstance(confidence, int | float) or confidence < JEV_MIN_CONFIDENCE
+            # merge_labels' rule: Jev wins when it is confident, or wherever Claude said nothing at all.
+            if not unsure or str(fid) not in labels:
                 labels[str(fid)] = answer["key"]
     return labels

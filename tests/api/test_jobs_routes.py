@@ -14,6 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from photosorter.api.app import create_app
+from photosorter.api.routes_jobs import NOTHING_LABELLED
 from photosorter.config import Paths, read_json, write_json
 from photosorter.jobs import JobRunner
 from tests.conftest import camera_roll
@@ -51,6 +52,21 @@ def gated_scan(monkeypatch, open_gate: threading.Event, entered: threading.Event
         return real(*args, **kwargs)
 
     monkeypatch.setattr(routes_jobs, "scan_folder", slow)
+
+
+def gated_labeler(monkeypatch, open_gate: threading.Event, entered: threading.Event, labels=None):
+    """Make the label phase sit still until `open_gate` is set, then answer with `labels`."""
+    from photosorter.api import routes_jobs
+
+    class Gated:
+        name = "gated"
+
+        def label(self, records, cats, paths, on_progress=None, cancel=None):
+            entered.set()
+            assert open_gate.wait(30), "the gate was never opened"
+            return dict(labels or {})
+
+    monkeypatch.setattr(routes_jobs, "make_labeler", lambda name: Gated())
 
 
 def test_sort_rejects_a_source_folder_that_does_not_exist(client):
@@ -206,12 +222,25 @@ def test_state_during_a_running_sort_lets_a_fresh_client_reattach(client, runner
 
 
 def test_cancel_stops_the_scan_through_its_own_cleanup(client, runner, paths, tmp_path, monkeypatch):
-    """The scan is handed the cancel event, not interrupted, so it can tidy up after itself."""
+    """The scan is handed the cancel event, not interrupted, so it can tidy up after itself.
+
+    There has to be something to tidy, so one scan finishes first: inventory.json, slim.json,
+    source.json and a preview per photo all exist before the cancelled one starts. A phase unwound
+    from its progress callback leaves all four behind - an inventory describing previews the next scan
+    has already wiped - which is exactly why scan_folder is never run with interrupt=True.
+    """
+    source = camera_roll(tmp_path / "roll", 3)
+    assert client.post("/api/run", json={"step": "scan", "source": str(source)}).status_code == 200
+    finish(runner)
+    assert runner.state().code == 0, runner.state().log
+    assert paths.inventory_file.exists() and paths.slim_file.exists() and paths.source_file.exists()
+    assert len(list(paths.thumbs.glob("*.jpg"))) == 3
+
     gate, entered = threading.Event(), threading.Event()
     gated_scan(monkeypatch, gate, entered)
-    source = camera_roll(tmp_path / "roll", 3)
-    body = {"source": str(source), "dest": str(tmp_path / "out"), "labeler": "stub"}
-    assert client.post("/api/sort", json=body).status_code == 200
+    # A smaller limit, so this sort cannot skip the scan as already current.
+    body = {"source": str(source), "dest": str(tmp_path / "out"), "labeler": "stub", "limit": 2}
+    assert client.post("/api/sort", json=body).json()["job"]["phases"][0] == "scan"
     assert entered.wait(30)
 
     assert client.post("/api/cancel").status_code == 200
@@ -221,8 +250,36 @@ def test_cancel_stops_the_scan_through_its_own_cleanup(client, runner, paths, tm
     assert state.code == 1
     assert "Stopped at your request." in state.log
     assert "dupes" not in state.timings, "no phase may start after a stop"
-    # The scan's own cleanup ran: no inventory left pointing at previews it had already wiped.
-    assert not paths.inventory_file.exists() and not paths.source_file.exists()
+    # The cancelled scan's own cleanup ran: the previews it wiped on the way in are still gone, and so
+    # are the three files that described them.
+    assert list(paths.thumbs.glob("*.jpg")) == []
+    assert not paths.inventory_file.exists()
+    assert not paths.slim_file.exists()
+    assert not paths.source_file.exists()
+
+
+def test_a_stop_during_labelling_says_it_was_stopped(client, runner, paths, tmp_path, monkeypatch):
+    """The common Stop: a first run, stopped while labelling, has no labels.json for apply to read.
+
+    Apply must see the stop before it reads them, or its own "nothing has a folder yet" becomes the
+    last word the dashboard shows about a job the user stopped on purpose.
+    """
+    gate, entered = threading.Event(), threading.Event()
+    gated_labeler(monkeypatch, gate, entered)
+    source = camera_roll(tmp_path / "roll", 2)
+    body = {"source": str(source), "dest": str(tmp_path / "out"), "labeler": "stub"}
+    assert client.post("/api/sort", json=body).status_code == 200
+    assert entered.wait(60)
+
+    assert client.post("/api/cancel").status_code == 200
+    gate.set()
+    finish(runner)
+    state = runner.state()
+    assert state.code == 1
+    assert state.log[-1] == "Stopped at your request.", state.log
+    assert NOTHING_LABELLED not in state.log, "a stop is not a missing-labels problem"
+    assert not paths.labels_file.exists(), "half the answers are not a result"
+    assert "apply" not in state.timings
 
 
 def test_run_does_one_phase_and_names_it_as_the_step(client, runner, paths, tmp_path):
@@ -253,12 +310,21 @@ def test_live_labels_endpoint_merges_claude_batches_and_confident_jev(client, pa
         paths.jev_file,
         {
             "1": {"key": "travel", "confidence": 0.9},  # confident, so it beats Claude's answer
-            "3": {"key": "home", "confidence": 0.3},  # too unsure to show yet
+            "2": {"key": "docs", "confidence": 0.2},  # unsure, and Claude answered: Claude keeps it
+            "3": {"key": "home", "confidence": 0.3},  # unsure, but Claude said nothing: it shows
             "4": {"key": "city", "confidence": 0.7},  # exactly at the bar
             "5": {"confidence": 0.95},  # damaged: no key at all
         },
     )
-    assert client.get("/api/labels").json() == {"0": "selfies", "1": "travel", "2": "pets", "4": "city"}
+    # merge_labels (core/apply.py) takes Jev at >= 0.7 OR wherever Claude is silent, and the live view
+    # has to answer the same way or the page animates a photo into a folder the sort will not use.
+    assert client.get("/api/labels").json() == {
+        "0": "selfies",
+        "1": "travel",
+        "2": "pets",
+        "3": "home",
+        "4": "city",
+    }
 
 
 def test_live_labels_endpoint_is_empty_before_anything_is_labelled(client):

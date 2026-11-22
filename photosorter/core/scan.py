@@ -25,6 +25,7 @@ from pillow_heif import register_heif_opener
 
 from photosorter import platform as plat
 from photosorter.config import Paths, read_json, write_json
+from photosorter.core.apply import check_destination  # apply imports no scanning, so this cannot cycle
 from photosorter.core.peek import PREVIEW_BYTES_PER_FILE
 from photosorter.models import IMAGE_EXTS, VIDEO_EXTS, FileRecord, ProgressFn
 
@@ -36,6 +37,49 @@ _SUPPLEMENTAL = "supplemental-metadata"
 _NUMBERED = re.compile(r"^(.*)\((\d+)\)(\.[^.]*)$")
 _BAD_FILE = "This file could not be opened. It may be damaged or in a format we do not support."
 _BEIGE, _GREY = (222, 205, 175), (160, 160, 160)
+
+
+#: True whichever folder sits inside the other, which is why it names neither as the one at fault.
+ROOT_AND_SOURCE_OVERLAP = (
+    "Your photos folder and the app's own folder must be separate, and neither can sit inside the other, "
+    "so the previews the app writes are never read back as photos. Please point --root at a folder "
+    "somewhere else."
+)
+
+
+def check_source(source: Path, paths: Paths) -> None:
+    """Refuse a folder that cannot be scanned, before anything is written. Both messages are the user's.
+
+    The overlap check is not optional politeness: the previews a scan writes under the app's own root
+    would be walked as photos by the next scan.
+    """
+    if not source.is_dir():
+        raise ValueError(f'"{source}" is not a folder we can open. Please choose a folder that exists.')
+    try:
+        check_destination(source, paths.root)
+    except ValueError:
+        raise ValueError(ROOT_AND_SOURCE_OVERLAP) from None
+
+
+def read_inventory(paths: Paths) -> list[FileRecord]:
+    """The records the last scan wrote. Raises when there has not been one."""
+    data = read_json(paths.inventory_file)
+    if not isinstance(data, list):
+        raise ValueError(
+            'Nothing has been scanned yet. Run the scan first: python -m photosorter scan "<your photos folder>"'
+        )
+    return [FileRecord.from_dict(d) for d in data]
+
+
+def scanned_source(paths: Paths) -> Path:
+    """The folder the user actually scanned. The destination is checked against this, never a subfolder."""
+    saved = read_json(paths.source_file)
+    if not isinstance(saved, dict) or not saved.get("path"):
+        raise ValueError(
+            "We do not know which folder was scanned. Run the scan first: "
+            'python -m photosorter scan "<your photos folder>"'
+        )
+    return Path(saved["path"])
 
 
 def scan_is_current(paths: Paths, source: Path, limit: int) -> bool:
@@ -51,6 +95,21 @@ def scan_is_current(paths: Paths, source: Path, limit: int) -> bool:
         and saved.get("limit", 0) == limit
         and paths.inventory_file.exists()
     )
+
+
+def scan_skipped_summary(records: list[FileRecord]) -> str:
+    """What to say when `scan_is_current` let the scan be skipped and the inventory was read instead."""
+    return f"{len(records)} files were already looked at, so that step is skipped."
+
+
+def scan_summary(records: list[FileRecord]) -> list[str]:
+    """What a finished scan has to say, one sentence per line, for stdout or for the job log."""
+    photos = sum(1 for r in records if r.kind == "photo")
+    lines = [f"{len(records)} files: {photos} photos and {len(records) - photos} videos."]
+    unreadable = sum(1 for r in records if r.error)
+    if unreadable:
+        lines.append(f"{unreadable} of them could not be opened. They are kept and put aside for you to look at.")
+    return lines
 
 
 def find_files(source: Path, limit: int = 0) -> list[Path]:

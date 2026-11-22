@@ -15,89 +15,34 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-import threading
-from collections.abc import Sequence
 from pathlib import Path
 
 from photosorter.config import Paths, read_json, write_json
-from photosorter.core.apply import apply_labels, check_destination, merge_labels
+from photosorter.core.apply import apply_labels, apply_summary, check_destination, merge_labels
 from photosorter.core.categories import (
+    FOLDERS_CHANGED_CLEARED,
+    NEW_SOURCE_CLEARED,
     clear_label_cache,
     drop_stale_labels,
-    load_categories,
-    validate_categories,
+    require_categories,
 )
 from photosorter.core.demo import build_demo
-from photosorter.core.dupes import find_duplicates
-from photosorter.core.labelers.base import LabelerUnavailable
-from photosorter.core.labelers.claude import ClaudeLabeler
-from photosorter.core.scan import scan_folder, scan_is_current
-from photosorter.core.sheets import build_sheets
-from photosorter.models import Category, DupeGroup, FileRecord, ProgressFn
-
-#: Spec 7.2: below this share of files labelled, the sort stops instead of guessing.
-LABEL_TOLERANCE = 0.95
-
-#: True whichever folder sits inside the other, which is why it names neither as the one at fault.
-_ROOT_AND_SOURCE_OVERLAP = (
-    "Your photos folder and the app's own folder must be separate, and neither can sit inside the other, "
-    "so the previews the app writes are never read back as photos. Please point --root at a folder "
-    "somewhere else."
+from photosorter.core.dupes import dupes_summary, find_duplicates
+from photosorter.core.labelers.base import LabelerUnavailable, check_label_coverage, label_summary
+from photosorter.core.labelers.choice import LABELER_NAMES, make_labeler
+from photosorter.core.scan import (
+    check_source,
+    read_inventory,
+    scan_folder,
+    scan_is_current,
+    scan_skipped_summary,
+    scan_summary,
+    scanned_source,
 )
+from photosorter.core.sheets import build_sheets
+from photosorter.models import DupeGroup, FileRecord, ProgressFn
+
 log = logging.getLogger(__name__)
-
-
-class StubLabeler:
-    """Gives every file the first folder of its kind. Exists so a test run needs no Claude CLI and no key."""
-
-    name = "stub"
-
-    def label(
-        self,
-        records: Sequence[FileRecord],
-        cats: list[Category],
-        paths: Paths,
-        on_progress: ProgressFn | None = None,
-        cancel: threading.Event | None = None,
-    ) -> dict[str, str]:
-        first = {kind: next((c.key for c in cats if c.kind == kind), None) for kind in ("photo", "video")}
-        if on_progress:
-            on_progress(len(records), len(records))
-        return {str(r.id): first[r.kind] for r in records if first[r.kind] is not None}
-
-
-class JevLabeler:
-    """Reads answers a local classifier already left in work/jev.json. It does not run one."""
-
-    name = "jev"
-
-    def label(
-        self,
-        records: Sequence[FileRecord],
-        cats: list[Category],
-        paths: Paths,
-        on_progress: ProgressFn | None = None,
-        cancel: threading.Event | None = None,
-    ) -> dict[str, str]:
-        answers = read_json(paths.jev_file)
-        if not isinstance(answers, dict):
-            raise LabelerUnavailable(
-                f"There are no answers to read at {paths.jev_file}. Run the labelling with "
-                "--labeler claude, or put the answers in that file first."
-            )
-        if on_progress:
-            on_progress(len(records), len(records))
-        return {
-            str(k): v["key"] for k, v in answers.items() if isinstance(v, dict) and isinstance(v.get("key"), str)
-        }
-
-
-def _labeler(name: str):
-    if name == "stub":
-        return StubLabeler()
-    if name == "jev":
-        return JevLabeler()
-    return ClaudeLabeler()
 
 
 def _progress(stage: str) -> ProgressFn:
@@ -115,26 +60,6 @@ def _progress(stage: str) -> ProgressFn:
     return show
 
 
-def _records(paths: Paths) -> list[FileRecord]:
-    data = read_json(paths.inventory_file)
-    if not isinstance(data, list):
-        raise ValueError(
-            'Nothing has been scanned yet. Run the scan first: python -m photosorter scan "<your photos folder>"'
-        )
-    return [FileRecord.from_dict(d) for d in data]
-
-
-def _scanned_source(paths: Paths) -> Path:
-    """The folder the user actually scanned. The destination is checked against this, never against a subfolder."""
-    saved = read_json(paths.source_file)
-    if not isinstance(saved, dict) or not saved.get("path"):
-        raise ValueError(
-            "We do not know which folder was scanned. Run the scan first: "
-            'python -m photosorter scan "<your photos folder>"'
-        )
-    return Path(saved["path"])
-
-
 def _clear_label_cache(paths: Paths, reason: str) -> None:
     """Clear every cached label (see clear_label_cache) and say why, if there was a cache to clear."""
     if clear_label_cache(paths):
@@ -144,58 +69,35 @@ def _clear_label_cache(paths: Paths, reason: str) -> None:
 def _drop_stale_labels(paths: Paths) -> None:
     """Spec 7.2, in core so the dashboard's label phase uses the very same gate."""
     if drop_stale_labels(paths):
-        print("The list of folders changed, so labels from the old list were cleared.")
-
-
-def _cats(paths: Paths) -> list[Category]:
-    cats = load_categories(paths)
-    if not cats:
-        raise ValueError(f"There are no folders to sort into. Add some to {paths.categories_file}.")
-    validate_categories(cats)
-    return cats
+        print(FOLDERS_CHANGED_CLEARED)
 
 
 def do_scan(paths: Paths, source: Path, limit: int) -> list[FileRecord]:
-    if not source.is_dir():
-        raise ValueError(f'"{source}" is not a folder we can open. Please choose a folder that exists.')
-    try:
-        check_destination(source, paths.root)
-    except ValueError:
-        raise ValueError(_ROOT_AND_SOURCE_OVERLAP) from None
+    check_source(source, paths)
     # Cleared BEFORE the scan, never after. A kill in between would otherwise leave the new source.json
     # beside the old library's batches, and the next run would skip the scan and label from them. Clearing
     # first cannot go wrong: an interrupted scan leaves source.json pointing at the old library, so the
     # next run scans again, and the only cost of an empty cache is labelling that work once more.
-    _clear_label_cache(paths, "A different set of photos is being looked at, so earlier labels were cleared.")
+    _clear_label_cache(paths, NEW_SOURCE_CLEARED)
     records = scan_folder(source, paths, limit, on_progress=_progress("Looking at your photos"))
-    photos = sum(1 for r in records if r.kind == "photo")
-    unreadable = sum(1 for r in records if r.error)
-    print(f"{len(records)} files: {photos} photos and {len(records) - photos} videos.")
-    if unreadable:
-        print(f"{unreadable} of them could not be opened. They are kept and put aside for you to look at.")
+    for line in scan_summary(records):
+        print(line)
     return records
 
 
 def do_dupes(paths: Paths, records: list[FileRecord]) -> None:
     result = find_duplicates(records, paths, on_progress=_progress("Looking for duplicates"))
-    freed = sum(g.freed for g in result.groups)
-    copies = sum(len(g.dupes) for g in result.groups)
-    print(f"{len(result.groups)} sets of duplicates, {copies} extra copies, about {freed // 1_000_000} MB.")
-    if result.capped_records:
-        print(f"{result.capped_records} files were too alike to compare with everything, so a few may be missed.")
+    for line in dupes_summary(result):
+        print(line)
 
 
 def do_label(paths: Paths, records: list[FileRecord], labeler_name: str) -> dict[str, str]:
-    cats = _cats(paths)
+    cats = require_categories(paths)
     _drop_stale_labels(paths)
-    labels = _labeler(labeler_name).label(records, cats, paths, _progress("Deciding where things go"))
-    if records and len(labels) < LABEL_TOLERANCE * len(records):
-        raise ValueError(
-            f"Only {len(labels)} of {len(records)} files could be given a folder, and at least "
-            f"{int(LABEL_TOLERANCE * 100)}% are needed. Please run the labelling again; finished work is kept."
-        )
+    labels = make_labeler(labeler_name).label(records, cats, paths, _progress("Deciding where things go"))
+    check_label_coverage(labels, records)
     write_json(paths.labels_file, labels)
-    print(f"{len(labels)} of {len(records)} files have a folder.")
+    print(label_summary(labels, records))
     return labels
 
 
@@ -208,7 +110,7 @@ def do_apply(paths: Paths, records: list[FileRecord], dest: Path) -> None:
         labels,
         read_json(paths.jev_file, default={}, strict=True) or {},
         read_json(paths.overrides_file, default={}, strict=True) or {},
-        _cats(paths),
+        require_categories(paths),
     )
     dupes = [DupeGroup.from_dict(d) for d in read_json(paths.dupes_file, default=[], strict=True) or []]
     result = apply_labels(
@@ -218,13 +120,10 @@ def do_apply(paths: Paths, records: list[FileRecord], dest: Path) -> None:
         dest,
         paths,
         on_progress=_progress("Copying into folders"),
-        source=_scanned_source(paths),
+        source=scanned_source(paths),
     )
-    print(f"{result.copied} files copied into {result.dest}.")
-    for folder, count in sorted(result.counts.items()):
-        print(f"  {folder}: {count}")
-    if result.unsorted:
-        print(f"{result.unsorted} files fitted no folder and are in _Review/unsorted for you to look at.")
+    for line in apply_summary(result):
+        print(line)
 
 
 def do_sort(paths: Paths, source: Path, dest: Path, limit: int, labeler_name: str) -> None:
@@ -233,8 +132,8 @@ def do_sort(paths: Paths, source: Path, dest: Path, limit: int, labeler_name: st
     # only then that the destination is wrong wastes all of it.
     check_destination(source, dest)
     if scan_is_current(paths, source, limit):
-        records = _records(paths)
-        print(f"{len(records)} files were already looked at, so that step is skipped.")
+        records = read_inventory(paths)
+        print(scan_skipped_summary(records))
     else:
         records = do_scan(paths, source, limit)
     do_dupes(paths, records)
@@ -250,7 +149,7 @@ def _parser() -> argparse.ArgumentParser:
     )  # fmt: skip
     labeler = argparse.ArgumentParser(add_help=False)
     labeler.add_argument(
-        "--labeler", choices=("claude", "jev", "stub"), default="claude",
+        "--labeler", choices=LABELER_NAMES, default="claude",
         help="claude asks your own Claude Code; jev reads work/jev.json; stub needs nothing and is for testing",
     )  # fmt: skip
 
@@ -294,14 +193,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "scan":
             do_scan(paths, args.source, args.limit)
         elif args.command == "dupes":
-            do_dupes(paths, _records(paths))
+            do_dupes(paths, read_inventory(paths))
         elif args.command == "sheets":
-            written = build_sheets(_records(paths), paths, sample=args.sample)
+            written = build_sheets(read_inventory(paths), paths, sample=args.sample)
             print(f"{len(written)} contact sheets built.")
         elif args.command == "label":
-            do_label(paths, _records(paths), args.labeler)
+            do_label(paths, read_inventory(paths), args.labeler)
         elif args.command == "apply":
-            do_apply(paths, _records(paths), args.dest)
+            do_apply(paths, read_inventory(paths), args.dest)
         elif args.command == "demo":
             print(f"{build_demo(paths, args.out)} files in the demo library.")
         elif args.command == "serve":

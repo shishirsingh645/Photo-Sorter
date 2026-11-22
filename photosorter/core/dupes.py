@@ -60,6 +60,18 @@ class DuplicateResult:
     capped_records: int = 0
 
 
+def dupes_summary(result: DuplicateResult) -> list[str]:
+    """What a finished dedupe has to say, one sentence per line, for stdout or for the job log."""
+    freed = sum(g.freed for g in result.groups)
+    copies = sum(len(g.dupes) for g in result.groups)
+    lines = [f"{len(result.groups)} sets of duplicates, {copies} extra copies, about {freed // 1_000_000} MB."]
+    if result.capped_records:
+        lines.append(
+            f"{result.capped_records} files were too alike to compare with everything, so a few may be missed."
+        )
+    return lines
+
+
 def band_keys(phash_hex: str, bands: int = 5) -> list[tuple[int, int]]:
     """The spec 13.1 pigeonhole bands: `(band index, band value)`, one per band.
 

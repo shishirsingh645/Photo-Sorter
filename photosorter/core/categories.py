@@ -8,9 +8,22 @@ import shutil
 from photosorter.config import Paths, read_json, write_json
 from photosorter.models import Category
 
+#: Said after a scan of a different folder cleared the cache, and after a changed folder list did.
+NEW_SOURCE_CLEARED = "A different set of photos is being looked at, so earlier labels were cleared."
+FOLDERS_CHANGED_CLEARED = "The list of folders changed, so labels from the old list were cleared."
+
 
 def load_categories(paths: Paths) -> list[Category]:
     return [Category.from_dict(d) for d in read_json(paths.categories_file, default=[])]
+
+
+def require_categories(paths: Paths) -> list[Category]:
+    """The folders to sort into, refusing an empty or self-contradicting list before any work starts."""
+    cats = load_categories(paths)
+    if not cats:
+        raise ValueError(f"There are no folders to sort into. Add some to {paths.categories_file}.")
+    validate_categories(cats)
+    return cats
 
 
 def save_categories(paths: Paths, cats: list[Category]) -> None:
