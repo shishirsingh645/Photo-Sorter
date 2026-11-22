@@ -462,7 +462,7 @@ Expected: FAIL — module not found
 
 - [ ] **Step 3: Implement `Dialog` and the four dialogs**
 
-`BrowseDialog` pages at 120 and `Lightbox` fetches `/api/record/{id}` on open — together these are what keep a 100,000-file library usable (spec §13.2). Port the reference's `.fb-dialog`, `.browse`, `.lightbox` and `.pc-*` CSS value-for-value.
+`BrowseDialog` pages at 120 and `Lightbox` fetches `/api/record/{id}?sha=<the record's sha256>` on open (**the `sha` is required - a bare call returns 400**, and a 409 means the folder was rescanned since the page loaded, so reload rather than retry) — together these are what keep a 100,000-file library usable (spec §13.2). Port the reference's `.fb-dialog`, `.browse`, `.lightbox` and `.pc-*` CSS value-for-value.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
