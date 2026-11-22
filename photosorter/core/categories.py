@@ -8,9 +8,22 @@ import shutil
 from photosorter.config import Paths, read_json, write_json
 from photosorter.models import Category
 
+#: Said after a scan of a different folder cleared the cache, and after a changed folder list did.
+NEW_SOURCE_CLEARED = "A different set of photos is being looked at, so earlier labels were cleared."
+FOLDERS_CHANGED_CLEARED = "The list of folders changed, so labels from the old list were cleared."
+
 
 def load_categories(paths: Paths) -> list[Category]:
     return [Category.from_dict(d) for d in read_json(paths.categories_file, default=[])]
+
+
+def require_categories(paths: Paths) -> list[Category]:
+    """The folders to sort into, refusing an empty or self-contradicting list before any work starts."""
+    cats = load_categories(paths)
+    if not cats:
+        raise ValueError(f"There are no folders to sort into. Add some to {paths.categories_file}.")
+    validate_categories(cats)
+    return cats
 
 
 def save_categories(paths: Paths, cats: list[Category]) -> None:
@@ -85,3 +98,19 @@ def clear_label_cache(paths: Paths) -> bool:
             "Some cached labels are in use, probably by a running sort. Stop it and save again."
         ) from e
     return existed
+
+
+def drop_stale_labels(paths: Paths) -> bool:
+    """Spec 7.2: a change to categories.json makes every cached label stale, so they go. Then stamp it.
+
+    True when a changed list actually cleared a cache, so the caller can say so in its own words.
+    No marker at all means a cache from before fingerprinting, not a changed list: it is kept and stamped.
+    """
+    fingerprint = categories_fingerprint(paths)
+    stored = read_marker(paths)
+    if stored == fingerprint:
+        return False
+    cleared = clear_label_cache(paths) if stored is not None else False
+    paths.labels.mkdir(parents=True, exist_ok=True)
+    paths.categories_fingerprint_file.write_text(fingerprint, encoding="utf-8")
+    return cleared

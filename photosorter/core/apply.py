@@ -51,6 +51,15 @@ _ILLEGAL = frozenset('<>:"/\\|?*')
 _MAX_NAME = 200  # well under the 255 a single path part may hold on any OS
 
 
+def apply_summary(result: ApplyResult) -> list[str]:
+    """What a finished copy has to say, one line each, for stdout or for the job log."""
+    lines = [f"{result.copied} files copied into {result.dest}."]
+    lines += [f"  {folder}: {count}" for folder, count in sorted(result.counts.items())]
+    if result.unsorted:
+        lines.append(f"{result.unsorted} files fitted no folder and are in _Review/unsorted for you to look at.")
+    return lines
+
+
 def folder_name(cat: Category) -> str:
     """One folder directly inside the destination. Every character Windows forbids in a name (and every
     control character) becomes '-'; trailing dots and spaces are dropped, since Windows drops them silently
