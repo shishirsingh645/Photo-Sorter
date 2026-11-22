@@ -6,6 +6,7 @@ The model answers with the ids printed on the tiles, so the tag has to stay legi
 from __future__ import annotations
 
 import random
+import threading
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -80,7 +81,11 @@ def render_sheet(recs: Sequence[FileRecord], thumbs: Path, font) -> Image.Image:
     return sheet
 
 
-def build_sheets(records: Sequence[FileRecord], paths: Paths, sample: bool = False) -> list[Path]:
+def build_sheets(
+    records: Sequence[FileRecord], paths: Paths, sample: bool = False, cancel: threading.Event | None = None
+) -> list[Path]:
+    """`cancel` stops between sheets and returns the ones already written. 100k files is ~3,334 renders,
+    and with no interruption point Stop would do nothing at all until the phase ended."""
     if sample:
         records = random.Random(SAMPLE_SEED).sample(records, min(SAMPLE_SIZE, len(records)))
         out = paths.work / "sample"
@@ -93,6 +98,8 @@ def build_sheets(records: Sequence[FileRecord], paths: Paths, sample: bool = Fal
     font = tag_font()
     written = []
     for n, start in enumerate(range(0, len(records), PER_SHEET)):
+        if cancel is not None and cancel.is_set():
+            return written  # the partial set: a cancelled run's sheets are never labelled
         sheet = render_sheet(records[start : start + PER_SHEET], paths.thumbs, font)
         target = out / f"sheet_{n:05d}.jpg"
         sheet.save(target, quality=90)
