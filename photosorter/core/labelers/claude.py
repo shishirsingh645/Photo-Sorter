@@ -29,6 +29,11 @@ PROGRESS_INTERVAL = 0.5
 #: Batches failing in a row for the same reason mean sign-in or quota, not a bad batch. Three costs about
 #: 12 doomed calls and 2.5 minutes of waiting, yet one or two unlucky batches never trip it.
 BREAKER_STREAK = 3
+#: Said by the labeller when it starts, and by the API before it starts a job that would only fail here.
+NOT_INSTALLED = (
+    "Claude Code is not installed, or this app cannot find it. Install Claude Code, sign in "
+    "once by running 'claude' in a terminal, then try again."
+)
 
 
 def _env_int(name: str, fallback: int) -> int:
@@ -102,10 +107,7 @@ class ClaudeLabeler:
     ) -> dict[str, str]:
         claude = find_claude()
         if claude is None:
-            raise LabelerUnavailable(
-                "Claude Code is not installed, or this app cannot find it. Install Claude Code, sign in "
-                "once by running 'claude' in a terminal, then try again."
-            )
+            raise LabelerUnavailable(NOT_INSTALLED)
         sheets = build_sheets(records, paths)
         size = self.sheets_per_batch
         batches = [(n, sheets[n * size : (n + 1) * size]) for n in range(-(-len(sheets) // size))]

@@ -22,17 +22,16 @@ from pathlib import Path
 from photosorter.config import Paths, read_json, write_json
 from photosorter.core.apply import apply_labels, check_destination, merge_labels
 from photosorter.core.categories import (
-    categories_fingerprint,
     clear_label_cache,
+    drop_stale_labels,
     load_categories,
-    read_marker,
     validate_categories,
 )
 from photosorter.core.demo import build_demo
 from photosorter.core.dupes import find_duplicates
 from photosorter.core.labelers.base import LabelerUnavailable
 from photosorter.core.labelers.claude import ClaudeLabeler
-from photosorter.core.scan import scan_folder
+from photosorter.core.scan import scan_folder, scan_is_current
 from photosorter.core.sheets import build_sheets
 from photosorter.models import Category, DupeGroup, FileRecord, ProgressFn
 
@@ -143,17 +142,9 @@ def _clear_label_cache(paths: Paths, reason: str) -> None:
 
 
 def _drop_stale_labels(paths: Paths) -> None:
-    """Spec 7.2: a change to categories.json makes every cached label stale, so they go."""
-    fingerprint = categories_fingerprint(paths)
-    marker = paths.categories_fingerprint_file
-    stored = read_marker(paths)
-    if stored is not None:
-        if stored == fingerprint:
-            return
-        _clear_label_cache(paths, "The list of folders changed, so labels from the old list were cleared.")
-    # No marker means a cache from before fingerprinting, not a changed list: it is kept and stamped.
-    paths.labels.mkdir(parents=True, exist_ok=True)
-    marker.write_text(fingerprint, encoding="utf-8")
+    """Spec 7.2, in core so the dashboard's label phase uses the very same gate."""
+    if drop_stale_labels(paths):
+        print("The list of folders changed, so labels from the old list were cleared.")
 
 
 def _cats(paths: Paths) -> list[Category]:
@@ -241,14 +232,7 @@ def do_sort(paths: Paths, source: Path, dest: Path, limit: int, labeler_name: st
     # Checked first: on a large library the labelling can run for an hour, and being told
     # only then that the destination is wrong wastes all of it.
     check_destination(source, dest)
-    saved = read_json(paths.source_file)
-    unchanged = (
-        isinstance(saved, dict)
-        and saved.get("path") == str(source)
-        and saved.get("limit", 0) == limit
-        and paths.inventory_file.exists()
-    )
-    if unchanged:
+    if scan_is_current(paths, source, limit):
         records = _records(paths)
         print(f"{len(records)} files were already looked at, so that step is skipped.")
     else:

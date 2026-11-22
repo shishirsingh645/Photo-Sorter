@@ -85,3 +85,19 @@ def clear_label_cache(paths: Paths) -> bool:
             "Some cached labels are in use, probably by a running sort. Stop it and save again."
         ) from e
     return existed
+
+
+def drop_stale_labels(paths: Paths) -> bool:
+    """Spec 7.2: a change to categories.json makes every cached label stale, so they go. Then stamp it.
+
+    True when a changed list actually cleared a cache, so the caller can say so in its own words.
+    No marker at all means a cache from before fingerprinting, not a changed list: it is kept and stamped.
+    """
+    fingerprint = categories_fingerprint(paths)
+    stored = read_marker(paths)
+    if stored == fingerprint:
+        return False
+    cleared = clear_label_cache(paths) if stored is not None else False
+    paths.labels.mkdir(parents=True, exist_ok=True)
+    paths.categories_fingerprint_file.write_text(fingerprint, encoding="utf-8")
+    return cleared

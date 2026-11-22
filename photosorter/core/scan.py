@@ -24,7 +24,7 @@ from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
 
 from photosorter import platform as plat
-from photosorter.config import Paths, write_json
+from photosorter.config import Paths, read_json, write_json
 from photosorter.core.peek import PREVIEW_BYTES_PER_FILE
 from photosorter.models import IMAGE_EXTS, VIDEO_EXTS, FileRecord, ProgressFn
 
@@ -36,6 +36,21 @@ _SUPPLEMENTAL = "supplemental-metadata"
 _NUMBERED = re.compile(r"^(.*)\((\d+)\)(\.[^.]*)$")
 _BAD_FILE = "This file could not be opened. It may be damaged or in a format we do not support."
 _BEIGE, _GREY = (222, 205, 175), (160, 160, 160)
+
+
+def scan_is_current(paths: Paths, source: Path, limit: int) -> bool:
+    """True when the inventory on disk already answers this request, so the scan can be skipped.
+
+    `limit` is part of the question: a different limit is a different random sample, so a different
+    inventory. One rule, so the CLI's `sort` and the dashboard's never disagree about what needs rescanning.
+    """
+    saved = read_json(paths.source_file)
+    return (
+        isinstance(saved, dict)
+        and saved.get("path") == str(source)
+        and saved.get("limit", 0) == limit
+        and paths.inventory_file.exists()
+    )
 
 
 def find_files(source: Path, limit: int = 0) -> list[Path]:
