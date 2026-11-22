@@ -363,3 +363,20 @@ def test_rebuild_does_not_delete_an_original_through_a_file_link(world):
     _damage_listing(world, ["link.jpg", "Pets", "x"])
     run(world)
     assert original.read_bytes() == b"data3"
+
+
+def test_folder_name_cannot_leave_the_destination():
+    import pytest
+
+    from photosorter.models import Category
+
+    BS = chr(92)
+
+    def c(label):
+        return Category(key="k", kind="photo", label=label, emoji="x", rule="r")
+
+    assert folder_name(c(f"..{BS}..{BS}x")) == "..-..-x"  # one folder, not three levels
+    assert folder_name(c(f"C:{BS}Evil")) == "C--Evil"
+    for bad in ("", "  ", ".", "..", "..."):
+        with pytest.raises(ValueError, match="name"):
+            folder_name(c(bad))

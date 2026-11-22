@@ -47,8 +47,22 @@ class ApplyResult:
     unsorted: int = 0  # files whose label matched no folder
 
 
+_ILLEGAL = frozenset('<>:"/\\|?*')
+_MAX_NAME = 200  # well under the 255 a single path part may hold on any OS
+
+
 def folder_name(cat: Category) -> str:
-    return cat.label.replace("&", "and").replace("/", "-")
+    """One folder directly inside the destination. Every character Windows forbids in a name (and every
+    control character) becomes '-'; trailing dots and spaces are dropped, since Windows drops them silently
+    and 'Food.' would then share a folder with 'Food'. An empty or over-long result is refused."""
+    name = cat.label.replace("&", "and")
+    name = "".join("-" if ch in _ILLEGAL or ord(ch) < 32 else ch for ch in name).rstrip(" .")
+    if not name or len(name) > _MAX_NAME:
+        raise ValueError(
+            f'The folder name "{cat.label}" (category "{cat.key}" in categories.json) cannot be used. '
+            f"Give it a real name of at most {_MAX_NAME} characters."
+        )
+    return name
 
 
 def check_destination(source: Path, dest: Path) -> None:
