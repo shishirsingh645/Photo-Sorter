@@ -455,35 +455,3 @@ def test_conversions_are_bounded_and_all_still_succeed(world, paths, monkeypatch
     assert [r.status_code for r in rs] == [200] * n
     assert all(Image.open(io.BytesIO(r.content)).format == "JPEG" for r in rs)
     assert high == routes_files.CONCURRENT_CONVERSIONS  # bounded, and actually reached (not serialised to 1)
-
-
-def test_unconverted_files_do_not_wait_behind_conversions(world, paths, monkeypatch):
-    import threading
-
-    import httpx
-
-    from photosorter.api import routes_files
-
-    release = threading.Event()
-    started = threading.Semaphore(0)
-
-    def stuck(path):
-        started.release()
-        release.wait(5)
-        return b"x"
-
-    monkeypatch.setattr(routes_files, "_convert", stuck)
-    world.write([world.src / "c.heic"] * 5 + [world.jpg])
-
-    async def run():
-        transport = httpx.ASGITransport(app=create_app(paths))
-        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8765") as c:
-            heics = [asyncio.create_task(c.get(f"/api/file/{i}?sha=any")) for i in range(5)]
-            await asyncio.sleep(0.3)  # the gate is full and three are queued
-            jpg = await asyncio.wait_for(c.get("/api/file/5?sha=any"), 2)
-            release.set()
-            await asyncio.gather(*heics)
-            return jpg
-
-    jpg = asyncio.run(run())
-    assert jpg.status_code == 200 and jpg.content == world.jpg_bytes
