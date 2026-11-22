@@ -7,7 +7,6 @@ from photosorter import __main__ as cli
 from photosorter.api import LOOPBACK
 from photosorter.api.app import create_app
 from photosorter.api.serve import serve
-from photosorter.config import Paths
 
 
 def _free_port() -> int:
@@ -55,7 +54,12 @@ def test_port_in_use_names_the_port_and_suggests_another(capsys, paths):
 
 def test_serve_subcommand_passes_flags_through(monkeypatch, tmp_path):
     got = {}
-    monkeypatch.setattr(cli, "serve", lambda paths, port, dev, open_browser: got.update(p=paths, port=port, dev=dev, b=open_browser) or 0)
+
+    def fake(paths, port, dev, open_browser):
+        got.update(p=paths, port=port, dev=dev, b=open_browser)
+        return 0
+
+    monkeypatch.setattr(cli, "serve", fake)
     assert cli.main(["serve", "--root", str(tmp_path), "--port", "8766", "--dev", "--no-browser"]) == 0
     assert (got["port"], got["dev"], got["b"], got["p"].root) == (8766, True, False, tmp_path)
     cli.main(["serve", "--root", str(tmp_path)])
