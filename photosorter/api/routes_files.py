@@ -35,9 +35,15 @@ router = APIRouter()
 CONVERT_EXTS = frozenset({".heic", ".heif", ".tif", ".tiff", ".bmp"})  # browsers cannot show these
 MAX_EDGE = 2400
 JPEG_QUALITY = 88
-# Pillow warns above this and raises DecompressionBombError above twice it (so ~100M px: a 100MP camera
-# passes, the 108M-px bomb that decoded to ~324MB does not). The raise becomes the 415 below.
-Image.MAX_IMAGE_PIXELS = 50_000_000
+# Largest image we will fully decode: 128 megapixels. Cameras top out at 100-102MP (medium format), so every
+# real photograph passes; a full RGB decode at the ceiling is ~400MB. Pillow's globals are left alone because
+# photosorter.core shares them; Image.open() itself already raises DecompressionBombError above ~178MP.
+# JPEG/PNG/WebP never reach this path (served untouched, streamed), so only HEIC/TIFF/BMP are bounded.
+MAX_DECODE_PIXELS = 128_000_000
+
+
+class ImageTooLarge(Exception):
+    """Header says the image needs more memory to decode than we allow; nothing was decoded."""
 
 
 class QuietFileResponse(FileResponse):
@@ -124,9 +130,18 @@ def contained(raw: object, root: str) -> Path:
 
 
 def _convert(path: Path) -> bytes:
-    with Image.open(long_path(path)) as im:
-        im = ImageOps.exif_transpose(im)
+    with Image.open(long_path(path)) as im:  # lazy: reads the header only
+        # Cheap decode where the format supports it (JPEG scales by 1/2, 1/4, 1/8). None of the formats routed
+        # here do today: Pillow's TIFF/BMP plugins lack draft() and pillow-heif 1.8.1 accepts the call but
+        # leaves the size unchanged. So the check below, on the header before any pixel is allocated, is
+        # the real protection; the call is kept so a future draft-capable plugin is used automatically.
+        im.draft(None, (MAX_EDGE, MAX_EDGE))
+        if im.width * im.height > MAX_DECODE_PIXELS:
+            raise ImageTooLarge
+        # Shrink first (a square box, so rotation cannot change the result), then rotate: transposing the
+        # full-size frame first made a second full-size copy and doubled the peak.
         im.thumbnail((MAX_EDGE, MAX_EDGE))
+        im = ImageOps.exif_transpose(im)
         out = io.BytesIO()
         im.convert("RGB").save(out, "JPEG", quality=JPEG_QUALITY)
     return out.getvalue()
@@ -141,7 +156,7 @@ def get_record(request: Request, file_id: int, sha: str | None = None) -> dict:
 
 # A plain `def`: FastAPI runs it in a worker thread, so decoding a big HEIC does not stall the event loop.
 # shortcut: anyio's default limiter is 40 threads, so up to 40 conversions can be in flight at once, each
-# bounded to ~100M px by MAX_IMAGE_PIXELS; add a semaphore if the browse grid ever pages that many HEICs.
+# bounded to MAX_DECODE_PIXELS each; add a semaphore if the browse grid ever pages that many HEICs.
 @router.get("/api/file/{file_id}")
 def get_file(request: Request, file_id: int, sha: str | None = None):
     rec, root = _record(request, file_id, sha)

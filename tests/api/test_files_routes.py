@@ -375,13 +375,38 @@ def test_record_refuses_a_path_outside_the_source(client, world):
 
 def test_a_decompression_bomb_is_a_415_not_a_decode(client, world):
     bomb = world.src / "bomb.tif"
-    Image.new("L", (11000, 10000), 0).save(bomb, compression="tiff_lzw")  # 110M px, a few MB on disk
+    Image.new("L", (14000, 10000), 0).save(bomb, compression="tiff_lzw")  # 140M px, a few MB on disk
     assert bomb.stat().st_size < 20_000_000
     world.write([bomb])
     r = client.get("/api/file/0?sha=any")
     assert r.status_code == 415
-    assert "DecompressionBombError" in r.json()["detail"]
+    assert "ImageTooLarge" in r.json()["detail"]
     assert str(world.src) not in r.text  # the exception text (which embeds the path) stays server side
+
+
+@pytest.mark.filterwarnings("ignore::PIL.Image.DecompressionBombWarning")
+def test_a_genuinely_large_photo_is_served_within_the_cap(client, world):
+    big = world.src / "scan.tif"
+    Image.new("L", (12000, 10000), 90).save(big, compression="tiff_lzw")  # 120M px: above any camera
+    world.write([big])
+    r = client.get("/api/file/0?sha=any")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
+    img = Image.open(io.BytesIO(r.content))
+    assert max(img.size) == 2400 and img.size[0] > img.size[1]  # reduced, aspect kept, not refused
+
+
+def test_pillows_global_pixel_limit_is_untouched_by_the_api(client, world):
+    from PIL import Image as PILImage
+
+    client.get("/api/file/1?sha=any")  # a real conversion
+    assert PILImage.MAX_IMAGE_PIXELS == 89478485  # Pillow's default
+    import subprocess
+
+    code = (
+        "from PIL import Image; d = Image.MAX_IMAGE_PIXELS; import photosorter.api.routes_files; "
+        "raise SystemExit(0 if Image.MAX_IMAGE_PIXELS == d == 89478485 else 1)"
+    )
+    assert subprocess.run([sys.executable, "-c", code]).returncode == 0
 
 
 def test_a_conversion_error_does_not_leak_the_path_or_pillow_text(client, world):
