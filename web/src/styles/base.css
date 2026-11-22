@@ -1,0 +1,9 @@
+/* Global rules: a value-for-value port of the reference app.css lines 1-9. Layout lives in component modules. */
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; }
+body { font-size: 13px; overflow: hidden; -webkit-font-smoothing: antialiased; }
+button { font: inherit; cursor: pointer; }
+input, textarea, select { font: 13px var(--font); }
+[data-icon] { display: inline-flex; }
+[data-icon] svg, .mx-icon svg { width: 14px; height: 14px; }

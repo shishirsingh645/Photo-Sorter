@@ -13,7 +13,7 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 build/
-dist/
+/dist/
 
 # node — web/dist is committed on purpose, so end users need only Python
 web/node_modules/
