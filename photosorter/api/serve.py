@@ -11,6 +11,7 @@ import uvicorn
 from photosorter.api import LOOPBACK
 from photosorter.api.app import create_app
 from photosorter.config import Paths
+from photosorter.jobs import JobRunner
 
 
 def serve(paths: Paths, port: int, dev: bool, open_browser: bool) -> int:
@@ -29,7 +30,7 @@ def serve(paths: Paths, port: int, dev: bool, open_browser: bool) -> int:
     # Bind first and read the port back: --port 0 lets the OS choose, and the app's Origin/Host allow-list must
     # be built from the port that is really bound.
     port = sock.getsockname()[1]
-    config = uvicorn.Config(create_app(paths, port=port, dev=dev), host=LOOPBACK, port=port, log_level="warning")
+    config = uvicorn.Config(create_app(paths, port=port, runner=JobRunner(paths), dev=dev), host=LOOPBACK, port=port, log_level="warning")
     url = f"http://{LOOPBACK}:{port}/"
     print(f"Photo Sorter is running at {url}  (Ctrl+C to stop)")
     if open_browser:

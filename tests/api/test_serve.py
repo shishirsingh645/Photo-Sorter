@@ -8,6 +8,7 @@ from photosorter import __main__ as cli
 from photosorter.api import LOOPBACK
 from photosorter.api.app import create_app
 from photosorter.api.serve import serve
+from photosorter.jobs import JobRunner
 
 
 def _free_port() -> int:
@@ -120,6 +121,21 @@ def test_port_zero_uses_the_port_the_os_chose(monkeypatch, paths):
         assert real != 0
         c = TestClient(seen["server"].config.app, base_url=f"http://127.0.0.1:{real}")
         assert c.get("/api/state").status_code == 200
+    finally:
+        sock.close()
+
+
+def test_the_served_app_has_a_job_runner(monkeypatch, paths):
+    # create_app(runner=None) is the default, and every other test injects a runner, so only the real
+    # serve() path can notice that nobody attached one. Without it every start was refused.
+    seen = _capture_run(monkeypatch)
+    assert serve(paths, port=0, dev=False, open_browser=False) == 0
+    sock = seen["sockets"][0]
+    try:
+        app = seen["server"].config.app
+        assert isinstance(app.state.runner, JobRunner)
+        c = TestClient(app, base_url=f"http://127.0.0.1:{sock.getsockname()[1]}")
+        assert "no job runner" not in c.post("/api/cancel").text
     finally:
         sock.close()
 
