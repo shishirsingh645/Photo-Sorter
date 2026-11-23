@@ -59,7 +59,8 @@ export function createSphere(container: HTMLElement, srcs: string[], anchor?: ()
       backfaceVisibility: "hidden",
     })
     container.append(el)
-    // files are handed out round-robin, so tile i carries every file whose index ≡ i (mod T)
+    // tileFor hands tiles out round-robin in ask order, so each tile ends up carrying the same number of
+    // files this count predicts; it cannot map by file index, because an id is an opaque string.
     tiles.push({
       el,
       x: Math.cos(th) * r,

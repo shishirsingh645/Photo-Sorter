@@ -286,6 +286,8 @@ describe("choosing folders", () => {
   it("chooses the folder next to the photos when ?dest= is left out", async () => {
     serve({ "/api/state": appState(), "/api/peek": peekOf })
     open("?source=%2FUsers%2Fme%2FPics")
+    // the source is applied first and only then the destination, so wait for each step in turn
+    expect(await screen.findByTitle("/Users/me/Pics")).toBeInTheDocument()
     expect(await screen.findByTitle("/Users/me/Pics (sorted)")).toBeInTheDocument()
   })
 

@@ -11,5 +11,5 @@ export default defineConfig({
   // The port is pinned: `photo-sorter serve --dev` accepts POSTs from exactly this origin (photosorter/api/app.py).
   server: { port: 5173, strictPort: true, proxy: { "/api": api, "/events": api, "/data": api, "/demo": api, "/peek": api } },
   build: { outDir: "dist" }, // relative to this folder (the Vite root): web/dist
-  test: { environment: "jsdom", setupFiles: ["./src/test-setup.ts"] },
+  test: { environment: "jsdom", setupFiles: ["./src/test-setup.ts"], css: true },
 })

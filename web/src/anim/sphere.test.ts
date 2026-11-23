@@ -48,6 +48,8 @@ describe("createSphere", () => {
   it("retires a tile only once its last file has flown", () => {
     const sphere = createSphere(el, srcs(640))
     const tile = sphere.tileFor("f0")!
+    // tiles are handed out in ask order, so the 321st distinct file is the one that reuses the first tile
+    for (let i = 1; i < 320; i++) sphere.tileFor(`f${i}`)
     expect(sphere.tileFor("f320")).toBe(tile)
     expect(tile.left).toBe(2)
 
@@ -63,6 +65,7 @@ describe("createSphere", () => {
   it("counts a file's retire once, however many times it is repeated", () => {
     const sphere = createSphere(el, srcs(640))
     const tile = sphere.tileFor("f0")!
+    for (let i = 1; i < 320; i++) sphere.tileFor(`f${i}`)
     expect(sphere.tileFor("f320")).toBe(tile)
 
     sphere.retire(tile, "f0")
@@ -122,7 +125,9 @@ describe("createSphere", () => {
     const sphere: Sphere = createSphere(el, srcs(320))
     sphere.draw(16)
     const t = sphere.tiles[0]
-    expect(t.el.style.transform).toMatch(/translate3d\(-?[\d.]+px,-?[\d.]+px,0\) scale\([\d.]+\)/)
+    // the code writes `translate3d(Xpx,Ypx,0)`, exactly as the reference does; reading it back gets the
+    // browser's own serialization, which spaces the commas and renders the bare 0 as 0px.
+    expect(t.el.style.transform).toMatch(/translate3d\(\s*-?[\d.]+px,\s*-?[\d.]+px,\s*0(px)?\)\s*scale\([\d.]+\)/)
     expect(t.el.style.opacity).not.toBe("")
     expect(t.el.style.zIndex).not.toBe("")
     expect(t.el.style.willChange).toBe("transform")
