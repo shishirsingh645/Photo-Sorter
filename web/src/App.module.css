@@ -1,0 +1,17 @@
+/* app.css 19-22 (the page) and 56 and 79-83 (the centred panel), plus the 900px rules at 180-182. The board, cards,
+   KPI row and title row keep their own modules. */
+.app { height: calc(100dvh - var(--top)); display: flex; flex-direction: column; padding: 16px 20px 14px; gap: 12px; }
+
+/* Fills the board's middle column. The setup card, the run card and the done panel are all positioned against it, and
+   its box is what the sphere's fallback centre is measured from (the reference's #stage). */
+.fill { position: absolute; inset: 0; pointer-events: none; }
+
+/* The reference's .panel, centred (its setup and done states): RunCard owns the bottom-aligned one, so this is the
+   setup card's, and the only place a panel wrapper is written for it. */
+.setupHost { position: absolute; inset: 0; z-index: 6; display: flex; align-items: center; justify-content: center; pointer-events: none; padding: 8px; }
+.setupHost > * { pointer-events: auto; }
+
+@media (max-width: 900px) {
+  :global(body) { overflow: auto; }
+  .app { height: auto; }
+}

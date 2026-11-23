@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { folderItems, loadLibrary } from "./library"
+import { folderItems, inFolder, loadSlim, miniOf, setLibraryBase, thumbOf } from "./library"
+import { loadLibrary } from "./library"
 
 const rec = (id: number, kind = "photo") => ({
   id, path: `/p/${id}.jpg`, name: `${id}.jpg`, ext: ".jpg", kind, bytes: 1, sha256: `sha${id}`, w: 1, h: 1, duration: 0,
@@ -62,5 +63,58 @@ describe("folderItems", () => {
   it("lists a folder's own files, and every duplicate under the review folder", () => {
     expect(folderItems(items, "beach").map((i) => i.id)).toEqual([0])
     expect(folderItems(items, "_dupes").map((i) => i.id)).toEqual([1])
+  })
+})
+
+describe("loadSlim", () => {
+  afterEach(() => {
+    setLibraryBase("/data")
+    vi.unstubAllGlobals()
+  })
+  const slim = [
+    { id: 0, kind: "photo", bytes: 5 },
+    { id: 1, kind: "video", bytes: 9 },
+  ]
+
+  it("reads the slim index, never the full inventory, with each file's folder and duplicate flag", async () => {
+    const fetch = serve({
+      "/data/slim.json": slim,
+      "/data/labels.json": { "0": "beach", "1": "clips" },
+      "/data/dupes.json": [{ keep: 0, dupes: [1] }],
+    })
+    const items = await loadSlim(true)
+    expect(fetch.mock.calls.map((c) => c[0]).sort()).toEqual(["/data/dupes.json", "/data/labels.json", "/data/slim.json"])
+    expect(items).toEqual([
+      { id: 0, kind: "photo", bytes: 5, cat: "beach", dupe: false },
+      { id: 1, kind: "video", bytes: 9, cat: "clips", dupe: true },
+    ])
+  })
+
+  it("leaves the folders out for a run in progress, whose labels.json is still the last run's", async () => {
+    serve({ "/data/slim.json": slim, "/data/labels.json": { "0": "beach" } })
+    expect((await loadSlim(false)).map((i) => i.cat)).toEqual([undefined, undefined])
+  })
+
+  it("follows the base, so ?demo reads /demo", async () => {
+    setLibraryBase("/demo")
+    const fetch = serve({ "/demo/slim.json": slim })
+    await loadSlim(true)
+    expect(fetch.mock.calls.every((c) => String(c[0]).startsWith("/demo/"))).toBe(true)
+    expect(thumbOf({ id: 3 })).toBe("/demo/thumbs/3.jpg")
+    expect(miniOf({ id: 3 })).toBe("/demo/mini/3.jpg")
+  })
+
+  it("refuses a slim index that is not a list", async () => {
+    serve({ "/data/slim.json": {} })
+    await expect(loadSlim(true)).rejects.toThrow(/not a list/)
+  })
+})
+
+describe("inFolder", () => {
+  it("is the one rule for what a folder holds: its own files, or every duplicate for review", () => {
+    expect(inFolder({ cat: "beach", dupe: false }, "beach")).toBe(true)
+    expect(inFolder({ cat: "beach", dupe: true }, "beach")).toBe(false)
+    expect(inFolder({ cat: "beach", dupe: true }, "_dupes")).toBe(true)
+    expect(inFolder({ cat: undefined, dupe: false }, "_dupes")).toBe(false)
   })
 })

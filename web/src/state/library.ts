@@ -1,10 +1,17 @@
 import { ApiError, UNREACHABLE } from "../api/client"
-import type { FileRecord } from "../api/client"
+import type { AppState, FileRecord } from "../api/client"
 
 /** One inventory record plus where the sort put it. `sha256` is what the lightbox hands to getRecord and move. */
 export interface LibraryItem extends FileRecord {
   cat?: string
   dupe: boolean
+}
+
+// Where the page reads its files from: /data, or /demo for ?demo (api/static.py mounts both). Set once, by App,
+// before anything loads.
+let base = "/data"
+export const setLibraryBase = (b: "/data" | "/demo") => {
+  base = b
 }
 
 // The static files the server mounts at /data (api/static.py). A 404 is just "not scanned yet" (null); any
@@ -29,7 +36,7 @@ async function getJSON(url: string): Promise<unknown> {
  * keeps in step) and whether dupes.json lists it as a duplicate. Kept here, not in client.ts. */
 export async function loadLibrary(): Promise<LibraryItem[]> {
   const [inv, labels, dupes] = await Promise.all(
-    ["inventory", "labels", "dupes"].map((n) => getJSON(`/data/${n}.json`)),
+    ["inventory", "labels", "dupes"].map((n) => getJSON(`${base}/${n}.json`)),
   )
   const cats = (labels && typeof labels === "object" ? labels : {}) as Record<string, string>
   const dupeIds = new Set(((Array.isArray(dupes) ? dupes : []) as { dupes: number[] }[]).flatMap((g) => g.dupes))
@@ -37,8 +44,52 @@ export async function loadLibrary(): Promise<LibraryItem[]> {
   return ((inv ?? []) as FileRecord[]).map((r) => ({ ...r, cat: cats[r.id], dupe: dupeIds.has(r.id) }))
 }
 
-/** What the reference's openFolder lists: a folder's own files, or every duplicate for "_dupes". */
-export const folderItems = (items: LibraryItem[], key: string) =>
-  items.filter((i) => (key === "_dupes" ? i.dupe : !i.dupe && i.cat === key))
+/** Whether a file belongs in a folder, as the reference's openFolder decides: its own files, or every duplicate
+ * for "_dupes". */
+export const inFolder = (it: { cat?: string; dupe: boolean }, key: string) =>
+  key === "_dupes" ? it.dupe : !it.dupe && it.cat === key
 
-export const thumbOf = (it: LibraryItem) => `/data/thumbs/${it.id}.jpg`
+/** What the reference's openFolder lists. */
+export const folderItems = (items: LibraryItem[], key: string) => items.filter((i) => inFolder(i, key))
+
+export const thumbOf = (it: { id: number }) => `${base}/thumbs/${it.id}.jpg`
+/** The 72px copy the animation uses: small enough that hundreds can be on screen at once. */
+export const miniOf = (it: { id: number }) => `${base}/mini/${it.id}.jpg`
+
+/** What the board needs of a file (the slim index: spec 13.2), plus where the sort put it. The full record is
+ * fetched only when a folder is opened. */
+export interface SlimItem {
+  id: number
+  kind: "photo" | "video"
+  bytes: number
+  cat?: string
+  dupe: boolean
+}
+
+const dupeIdsOf = (dupes: unknown) =>
+  new Set(((Array.isArray(dupes) ? dupes : []) as { dupes: number[] }[]).flatMap((g) => g.dupes))
+
+/** The reference's loadLibrary, on the slim index instead of the full inventory: slim.json, with each file's
+ * folder (labels.json, left out for a run still in progress) and whether dupes.json lists it. */
+export async function loadSlim(withLabels: boolean): Promise<SlimItem[]> {
+  const [slim, labels, dupes] = await Promise.all(["slim", "labels", "dupes"].map((n) => getJSON(`${base}/${n}.json`)))
+  if (slim != null && !Array.isArray(slim)) throw new ApiError(`${base}/slim.json is not a list of files. Scan the folder again.`, 200)
+  const cats = (withLabels && labels && typeof labels === "object" ? labels : {}) as Record<string, string>
+  const dupeIds = dupeIdsOf(dupes)
+  return ((slim ?? []) as { id: number; kind: "photo" | "video"; bytes: number }[]).map((r) => ({
+    id: r.id,
+    kind: r.kind,
+    bytes: r.bytes,
+    cat: cats[r.id],
+    dupe: dupeIds.has(r.id),
+  }))
+}
+
+/** categories.json, which only the demo folder carries: a real run reads its folders from /api/state. */
+export const loadCategories = async () => ((await getJSON(`${base}/categories.json`)) ?? []) as AppState["categories"]
+
+/** dupes.json, which the duplicates phase writes: absent (an empty set) until then. */
+export const loadDupeIds = async () => dupeIdsOf(await getJSON(`${base}/dupes.json`))
+
+/** labels.json as the sort left it, hand moves included. */
+export const loadLabelsFile = async () => ((await getJSON(`${base}/labels.json`)) ?? {}) as Record<string, string>
