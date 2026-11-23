@@ -1,0 +1,19 @@
+/* components.css lines 44-56 (.mx-kpis, .mx-kpi, the 900px query) merged with app.css lines 23-29, which override
+   them in the reference: padding-bottom 12px, b at 26px, the .of suffix and the progress bar. The unused
+   svg / .line sparkline rules are not ported: this row has no charts. */
+.kpis { display: grid; grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr)); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); overflow: hidden; box-shadow: var(--shadow); position: relative; flex: none; }
+.kpi { padding: 14px 16px 12px; border-left: 1px solid var(--border); min-width: 0; }
+.kpi:first-child { border-left: 0; }
+.kpi h3 { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi b { display: block; margin: 6px 0 2px; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.kpi small { display: block; font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.of { font-size: 14px; color: var(--faint); font-weight: 500; }
+@media (max-width: 900px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpi:nth-child(odd) { border-left: 0; }
+  .kpi:nth-child(n + 3) { border-top: 1px solid var(--border); }
+}
+
+.progress { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--hair); }
+.progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width var(--dur-3) var(--ease), background var(--dur-3); }
+.progress[data-done="true"] i { background: var(--green); }

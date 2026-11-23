@@ -1,0 +1,21 @@
+/* Ported from app.css lines 37-55, plus components.css's .mx-count (line 10), which the badge is. */
+.card { position: relative; text-align: left; padding: 9px 10px 10px; border-radius: var(--r-lg); border: 1px solid var(--border);
+  background: var(--surface); box-shadow: var(--shadow); color: var(--ink); transition: border-color var(--dur-2), box-shadow var(--dur-2), transform var(--dur-1); }
+.card:hover { border-color: var(--chip-border); }
+.card:active { transform: scale(.99); }
+:global([data-mode="setup"]) .card { cursor: default; opacity: .8; }
+.card.hit { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
+.card.wide { grid-column: 1 / -1; }
+.card.review { border-style: dashed; }
+.ch { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; margin-bottom: 7px; min-width: 0; }
+.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.count { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 6px; background: var(--accent-tint); color: var(--accent); font-variant-numeric: tabular-nums;
+  margin-left: auto; transform: scale(0); transition: transform var(--dur-3) var(--ease); }
+.count[data-on="true"] { transform: scale(1); }
+.count.pop { animation: pop var(--dur-2) var(--ease); }
+@keyframes pop { 50% { transform: scale(1.18); } }
+.grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 3px; }
+.wide .grid { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+.slot { aspect-ratio: 1; border-radius: 4px; background: var(--hover); overflow: hidden; }
+.slot img { width: 100%; height: 100%; object-fit: cover; display: block; animation: land var(--dur-3) var(--ease); }
+@keyframes land { from { transform: scale(1.25); opacity: .6; } }
