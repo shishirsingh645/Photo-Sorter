@@ -37,24 +37,24 @@ export function Topbar({ mode, pill, onNewSort, onSortWithClaude }: TopbarProps)
         photo sorter
       </span>
       <span className={styles.pill}>
-        <span className={`${styles.dot} ${pill.kind ? styles[pill.kind] : ""}`} />
+        <span className={`${styles.dot} ${pill.kind ? styles[pill.kind] : ""} ${pill.kind === "busy" ? "mx-blink" : ""}`} />
         <span>{pill.text}</span>
       </span>
       <span className={styles.spacer} />
       <button
-        className={styles.icon}
+        className="mx-icon"
         onClick={toggle}
         aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
       >
         <Icon name={theme === "dark" ? "sun" : "moon"} />
       </button>
       {done && (
-        <button className={`${styles.btn} ${styles.new}`} onClick={onNewSort}>
+        <button className={`mx-btn ${styles.new}`} onClick={onNewSort}>
           <Icon name="plus" />
           New sort
         </button>
       )}
-      <button className={`${styles.btn} ${styles.solid}`} onClick={onSortWithClaude}>
+      <button className="mx-btn solid" onClick={onSortWithClaude}>
         <Icon name="play" />
         <span>Sort with Claude</span>
       </button>

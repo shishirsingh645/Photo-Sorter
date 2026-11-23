@@ -18,15 +18,15 @@ export function TitleRow({ total, source, showTotal, onEditFolders, onOpenSorted
   return (
     <div className={styles.title}>
       <h1>Sorting my camera roll</h1>
-      {showTotal && <span className={styles.count}>{total.toLocaleString("en-US")}</span>}
-      <span className={styles.sub}>{source}</span>
+      {showTotal && <span className="mx-count">{total.toLocaleString("en-US")}</span>}
+      <span className={`mx-sub ${styles.sub}`}>{source}</span>
       <span className={styles.spacer} />
-      <button className={styles.btn} onClick={onEditFolders}>
+      <button className="mx-btn small" onClick={onEditFolders}>
         <Icon name="pencil" />
         Edit folders
       </button>
       {canOpenSorted && (
-        <button className={styles.btn} onClick={onOpenSorted}>
+        <button className="mx-btn small" onClick={onOpenSorted}>
           <Icon name="folder" />
           Open sorted folder
         </button>

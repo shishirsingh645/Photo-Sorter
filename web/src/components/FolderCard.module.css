@@ -1,4 +1,4 @@
-/* Ported from app.css lines 37-55, plus components.css's .mx-count (line 10), which the badge is. */
+/* Ported from app.css lines 37-55. The badge is the global .mx-count (styles/components.css) plus .count here. */
 .card { position: relative; text-align: left; padding: 9px 10px 10px; border-radius: var(--r-lg); border: 1px solid var(--border);
   background: var(--surface); box-shadow: var(--shadow); color: var(--ink); transition: border-color var(--dur-2), box-shadow var(--dur-2), transform var(--dur-1); }
 .card:hover { border-color: var(--chip-border); }
@@ -9,8 +9,7 @@
 .card.review { border-style: dashed; }
 .ch { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; margin-bottom: 7px; min-width: 0; }
 .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.count { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 6px; background: var(--accent-tint); color: var(--accent); font-variant-numeric: tabular-nums;
-  margin-left: auto; transform: scale(0); transition: transform var(--dur-3) var(--ease); }
+.count { margin-left: auto; transform: scale(0); transition: transform var(--dur-3) var(--ease); }
 .count[data-on="true"] { transform: scale(1); }
 .count.pop { animation: pop var(--dur-2) var(--ease); }
 @keyframes pop { 50% { transform: scale(1.18); } }

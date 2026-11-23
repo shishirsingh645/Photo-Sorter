@@ -68,7 +68,7 @@ export const FolderCard = forwardRef<FolderCardHandle, FolderCardProps>(function
         <span className={styles.name} title={category.label}>
           {category.label}
         </span>
-        <span ref={badge} className={styles.count} data-on={count > 0} aria-hidden={count === 0}>
+        <span ref={badge} className={`mx-count ${styles.count}`} data-on={count > 0} aria-hidden={count === 0}>
           {total}
         </span>
       </div>

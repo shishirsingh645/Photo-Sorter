@@ -1,6 +1,5 @@
-/* app.css 17 (blink), 79-81 (the panel the card sits in, bottom-aligned while running) and 131-146 (the run card),
-   with .now/.ok/.bad as data-state values (a test can read them), plus components.css 13-23 (.mx-btn, small and solid) which its buttons are. */
-@keyframes blink { 50% { opacity: 0.3; } }
+/* app.css 79-81 (the panel the card sits in, bottom-aligned while running) and 131-146 (the run card), with
+   .now/.ok/.bad as data-state values (a test can read them). Its buttons are the global .mx-btn.small (styles/components.css). */
 .panel { position: absolute; inset: 0; z-index: 6; display: flex; align-items: flex-end; justify-content: center; pointer-events: none; padding: 8px; }
 .panel > * { pointer-events: auto; }
 .run { width: min(400px, 100%); padding: 14px 16px; border-radius: var(--r-lg); border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow-lift); }
@@ -13,7 +12,7 @@
 .phases li { display: flex; align-items: center; gap: 5px; }
 .phases li i { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--chip-border); }
 .phases li[data-state="now"] { color: var(--ink); font-weight: 600; }
-.phases li[data-state="now"] i { border-color: var(--accent); background: var(--accent); animation: blink 1s infinite; }
+.phases li[data-state="now"] i { border-color: var(--accent); background: var(--accent); } /* blinks through the global .mx-blink */
 .phases li[data-state="ok"] { color: var(--green); }
 .phases li[data-state="ok"] svg { width: 12px; height: 12px; }
 .phases li[data-state="bad"] { color: var(--brand); }
@@ -24,13 +23,4 @@
 .acts { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
 .note { margin: 0; color: var(--faint); font-size: 12px; }
 .phases + .note, .note + .btn { margin-top: 10px; }
-
-.btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 28px; padding: 0 10px;
-  border-radius: 999px; border: 1px solid var(--chip-border); background: var(--surface); color: var(--ink-2);
-  font-size: 12px; font-weight: 500; white-space: nowrap; text-decoration: none; flex: none;
-}
-.btn:hover:not(:disabled) { color: var(--ink); border-color: var(--faint); }
-.btn:active:not(:disabled) { transform: scale(0.97); }
-.btn.solid { background: var(--ink); border-color: var(--ink); color: var(--paper); font-weight: 600; }
-.btn.solid:hover:not(:disabled) { color: var(--paper); opacity: 0.88; }
+.btn { flex: none; } /* the stop button must not shrink beside its note */

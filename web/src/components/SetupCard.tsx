@@ -109,7 +109,7 @@ export function SetupCard({ state, pick, onChoose, labeler, sample, onLabeler, o
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && draft.trim() && choose(key, draft.trim())}
       />
-      <button className={`${styles.btn} ${styles.small} ${styles.solid}`} disabled={!draft.trim()} onClick={() => choose(key, draft.trim())}>
+      <button className="mx-btn small solid" disabled={!draft.trim()} onClick={() => choose(key, draft.trim())}>
         Use
       </button>
     </div>
@@ -121,7 +121,7 @@ export function SetupCard({ state, pick, onChoose, labeler, sample, onLabeler, o
     </p>
   ) : null
   const chooseBtn = (key: Key, cls: string) => (
-    <button className={`${styles.btn} ${cls}`} disabled={picking} onClick={() => void pickWith(key)}>
+    <button className={`mx-btn ${cls}`} disabled={picking} onClick={() => void pickWith(key)}>
       <Icon name="folder" />
       {picking ? "Waiting for the folder window…" : key === "source" ? "Choose folder" : "Choose another folder"}
     </button>
@@ -172,7 +172,7 @@ export function SetupCard({ state, pick, onChoose, labeler, sample, onLabeler, o
           </div>
           {canPick && typing !== "source" ? (
             <div className={styles.acts}>
-              {chooseBtn("source", `${styles.solid} ${styles.bigBtn}`)}
+              {chooseBtn("source", `solid ${styles.bigBtn}`)}
               {typeLink("source")}
             </div>
           ) : (
@@ -207,7 +207,7 @@ export function SetupCard({ state, pick, onChoose, labeler, sample, onLabeler, o
               </div>
               {typing !== "dest" ? (
                 <div className={`${styles.acts} ${styles.col}`}>
-                  <button className={`${styles.btn} ${styles.solid} ${styles.bigBtn}`} onClick={() => choose("dest", sug)}>
+                  <button className={`mx-btn solid ${styles.bigBtn}`} onClick={() => choose("dest", sug)}>
                     <Icon name="check" />
                     Next to my photos
                   </button>
@@ -215,7 +215,7 @@ export function SetupCard({ state, pick, onChoose, labeler, sample, onLabeler, o
                     {tilde(sug)}
                   </p>
                   <div className={styles.row}>
-                    {canPick && chooseBtn("dest", styles.small)}
+                    {canPick && chooseBtn("dest", "small")}
                     {typeLink("dest")}
                   </div>
                 </div>
@@ -238,7 +238,7 @@ export function SetupCard({ state, pick, onChoose, labeler, sample, onLabeler, o
       {source && dest && (
         <>
           <div className={styles.start}>
-            <button className={`${styles.btn} ${styles.solid} ${styles.bigBtn} ${styles.wide}`} onClick={start}>
+            <button className={`mx-btn solid ${styles.bigBtn} ${styles.wide}`} onClick={start}>
               <Icon name="play" />
               Start sorting
             </button>

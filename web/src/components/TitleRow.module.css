@@ -1,18 +1,10 @@
-/* components.css .mx-title (8-9, 12), .mx-count (10), .mx-sub (11) and .mx-btn.small (13-23) merged with app.css
-   21-22 (margin 0, the ellipsised source line) and the 900px rule at 191. */
+/* components.css .mx-title (8-9, 12) merged with app.css 21-22 (margin 0, the ellipsised source line) and the 900px
+   rule at 191. The count badge, the sub line's colour and the buttons are the global .mx-count, .mx-sub and
+   .mx-btn.small (styles/components.css). */
 .title { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 0; }
 .title h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); }
-.count { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 6px; background: var(--accent-tint); color: var(--accent); font-variant-numeric: tabular-nums; }
-.sub { color: var(--faint); font-size: 13px; max-width: 52ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub { max-width: 52ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .spacer { flex: 1; }
-
-.btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 28px; padding: 0 10px;
-  border-radius: 999px; border: 1px solid var(--chip-border); background: var(--surface); color: var(--ink-2);
-  font-size: 12px; font-weight: 500; white-space: nowrap; text-decoration: none;
-}
-.btn:hover:not(:disabled) { color: var(--ink); border-color: var(--faint); }
-.btn:active:not(:disabled) { transform: scale(0.97); }
 
 @media (max-width: 900px) {
   .sub { display: none; }

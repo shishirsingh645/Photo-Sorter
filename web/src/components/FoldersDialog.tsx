@@ -2,7 +2,7 @@ import { useState } from "react"
 import { saveCategories } from "../api/client"
 import type { CategoryIn } from "../api/client"
 import { Dialog } from "./Dialog"
-import { DialogIcon } from "./DialogIcon"
+import { Icon } from "./Icon"
 import d from "./Dialog.module.css"
 import s from "./FoldersDialog.module.css"
 
@@ -81,15 +81,15 @@ export function FoldersDialog({ categories, onSaved, onClose }: Props) {
         aria-label="Rule"
         onChange={(e) => edit(c.uid, { rule: e.target.value })}
       />
-      <div className={`${d.seg} ${s.seg}`}>
+      <div className={`mx-seg ${s.seg}`}>
         {(["photo", "video"] as const).map((k) => (
           <button key={k} aria-pressed={c.kind === k} onClick={() => edit(c.uid, { kind: k })}>
             {k === "photo" ? "Photos" : "Videos"}
           </button>
         ))}
       </div>
-      <button className={d.icon} aria-label={`Delete ${c.label}`} onClick={() => setDraft((rows) => rows.filter((r) => r.uid !== c.uid))}>
-        <DialogIcon name="trash" />
+      <button className="mx-icon" aria-label={`Delete ${c.label}`} onClick={() => setDraft((rows) => rows.filter((r) => r.uid !== c.uid))}>
+        <Icon name="trash" />
       </button>
     </div>
   )
@@ -98,8 +98,8 @@ export function FoldersDialog({ categories, onSaved, onClose }: Props) {
     <Dialog label="Edit folders" onClose={onClose}>
       <div className={d.head}>
         <h2>Folders</h2>
-        <button className={d.icon} onClick={onClose} aria-label="Close">
-          <DialogIcon name="x" />
+        <button className="mx-icon" onClick={onClose} aria-label="Close">
+          <Icon name="x" />
         </button>
       </div>
       <div className={d.rows}>
@@ -118,19 +118,19 @@ export function FoldersDialog({ categories, onSaved, onClose }: Props) {
         </p>
       )}
       <div className={d.foot}>
-        <button className={d.btn} onClick={add("photo")}>
-          <DialogIcon name="plus" />
+        <button className="mx-btn" onClick={add("photo")}>
+          <Icon name="plus" />
           Photo folder
         </button>
-        <button className={d.btn} onClick={add("video")}>
-          <DialogIcon name="plus" />
+        <button className="mx-btn" onClick={add("video")}>
+          <Icon name="plus" />
           Video folder
         </button>
         <span className={d.spacer} />
-        <button className={`${d.btn} ${d.ghost}`} onClick={onClose}>
+        <button className="mx-btn ghost" onClick={onClose}>
           Cancel
         </button>
-        <button className={`${d.btn} ${d.solid}`} onClick={save} disabled={saving}>
+        <button className="mx-btn solid" onClick={save} disabled={saving}>
           Save folders
         </button>
       </div>

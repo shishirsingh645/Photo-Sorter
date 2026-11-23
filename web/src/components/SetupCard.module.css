@@ -1,4 +1,4 @@
-/* Ported from app.css lines 82-109 (the setup card), plus components.css lines 13-23 (.mx-btn, as .btn) which its buttons are. */
+/* Ported from app.css lines 82-109 (the setup card). Its buttons are the global .mx-btn (styles/components.css). */
 .setup { width: min(380px, 100%); max-height: 100%; overflow-y: auto; scrollbar-width: thin; padding: 20px; border-radius: 18px; border: 1px solid var(--border);
   background: var(--surface); box-shadow: var(--shadow-lift); }
 .q { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 10px; align-items: start; }
@@ -35,14 +35,3 @@
 .notice { margin: 10px 0 0 36px; padding: 7px 10px; border-radius: 9px; background: var(--brand-tint); color: var(--brand); font-size: 12px; line-height: 1.4; }
 .start .notice { margin-left: 0; }
 
-.btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 14px;
-  border-radius: 999px; border: 1px solid var(--chip-border); background: var(--surface); color: var(--ink-2);
-  font-size: 13px; font-weight: 500; white-space: nowrap; text-decoration: none;
-}
-.btn:hover:not(:disabled) { color: var(--ink); border-color: var(--faint); }
-.btn.solid { background: var(--ink); border-color: var(--ink); color: var(--paper); font-weight: 600; }
-.btn.solid:hover:not(:disabled) { color: var(--paper); opacity: 0.88; }
-.btn:active:not(:disabled) { transform: scale(0.97); }
-.btn.small { height: 28px; padding: 0 10px; font-size: 12px; }
-.btn:disabled { opacity: .45; cursor: default; }

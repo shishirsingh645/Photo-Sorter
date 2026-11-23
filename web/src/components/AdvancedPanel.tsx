@@ -68,7 +68,7 @@ export function AdvancedPanel({ categories, files, jevKey, labeler, sample, onLa
         <span className={styles.newf}>
           <input ref={nameInput} autoFocus placeholder="Folder name" aria-label="Folder name" value={label} onChange={(e) => setLabel(e.target.value)} onKeyDown={onKey(kind)} />
           <input placeholder="What goes in it" aria-label="What goes in it" value={rule} onChange={(e) => setRule(e.target.value)} onKeyDown={onKey(kind)} />
-          <button className={styles.btn} onClick={() => add(kind)}>Add</button>
+          <button className="mx-btn small solid" onClick={() => add(kind)}>Add</button>
         </span>
       ) : (
         <span className={`${styles.fchip} ${styles.add}`}>

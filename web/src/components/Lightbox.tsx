@@ -4,9 +4,8 @@ import type { FileRecord } from "../api/client"
 import { thumbOf } from "../state/library"
 import type { LibraryItem } from "../state/library"
 import { Dialog } from "./Dialog"
-import { DialogIcon } from "./DialogIcon"
-import { fmt, size } from "./format"
-import d from "./Dialog.module.css"
+import { Icon } from "./Icon"
+import { fmt, fmtSize } from "../format"
 import s from "./Lightbox.module.css"
 
 interface Props {
@@ -28,7 +27,7 @@ function Failure({ error }: { error: ApiError }) {
     return (
       <>
         {error.message}{" "}
-        <button className={`${d.btn} ${d.small} ${s.btn}`} onClick={() => location.reload()}>
+        <button className={`mx-btn small ${s.btn}`} onClick={() => location.reload()}>
           Reload page
         </button>
       </>
@@ -118,13 +117,13 @@ export function Lightbox({ items, index, categories, onIndex, onMoved, onClose }
       <div className={s.bar}>
         <b>{item.name}</b>
         <small>
-          {size(item.bytes)}
+          {fmtSize(item.bytes)}
           {item.taken ? " · " + new Date(item.taken * 1000).toLocaleDateString() : ""} · {index + 1} of {fmt(items.length)}
         </small>
         <span className={s.spacer} />
         <small>Move to</small>
         <select
-          className={`${d.select} ${s.select}`}
+          className={`mx-select ${s.select}`}
           aria-label="Move to folder"
           value={known ? current : ""}
           onChange={(e) => onMove(e.target.value)}
@@ -140,8 +139,8 @@ export function Lightbox({ items, index, categories, onIndex, onMoved, onClose }
             </option>
           ))}
         </select>
-        <button className={`${d.btn} ${d.small} ${s.btn}`} onClick={showOriginal} disabled={!record}>
-          <DialogIcon name="reveal" />
+        <button className={`mx-btn small ${s.btn}`} onClick={showOriginal} disabled={!record}>
+          <Icon name="reveal" />
           Show original
         </button>
         {mineNote?.text && <small role="status">{mineNote.text}</small>}
@@ -152,13 +151,13 @@ export function Lightbox({ items, index, categories, onIndex, onMoved, onClose }
         )}
       </div>
       <button className={`${s.nav} ${s.prev}`} aria-label="Previous" onClick={() => go(index - 1)}>
-        <DialogIcon name="left" />
+        <Icon name="left" />
       </button>
       <button className={`${s.nav} ${s.next}`} aria-label="Next" onClick={() => go(index + 1)}>
-        <DialogIcon name="right" />
+        <Icon name="right" />
       </button>
-      <button className={`${d.icon} ${s.close}`} aria-label="Close" onClick={onClose}>
-        <DialogIcon name="x" />
+      <button className={`mx-icon ${s.close}`} aria-label="Close" onClick={onClose}>
+        <Icon name="x" />
       </button>
     </Dialog>
   )

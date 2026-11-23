@@ -1,6 +1,6 @@
 import { Dialog } from "./Dialog"
-import { DialogIcon } from "./DialogIcon"
-import { fmt } from "./format"
+import { Icon } from "./Icon"
+import { fmt } from "../format"
 import d from "./Dialog.module.css"
 import s from "./PaidConfirm.module.css"
 
@@ -13,8 +13,8 @@ export function PaidConfirm({ files, onResolve }: { files: number; onResolve: (s
     <Dialog label="Label with Jev" className={s.pc} onClose={() => onResolve(false)}>
       <div className={d.head}>
         <h2>Label with Jev</h2>
-        <button className={d.icon} onClick={() => onResolve(false)} aria-label="Close">
-          <DialogIcon name="x" />
+        <button className="mx-icon" onClick={() => onResolve(false)} aria-label="Close">
+          <Icon name="x" />
         </button>
       </div>
       <div className={s.list}>
@@ -26,7 +26,7 @@ export function PaidConfirm({ files, onResolve }: { files: number; onResolve: (s
               price on console.typesafe.ai.
             </p>
           </div>
-          <button className={`${d.btn} ${d.solid} ${s.btn}`} onClick={() => onResolve(true)}>
+          <button className={`mx-btn solid ${s.btn}`} onClick={() => onResolve(true)}>
             Spend tokens
           </button>
         </div>

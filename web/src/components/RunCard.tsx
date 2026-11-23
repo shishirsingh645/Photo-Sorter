@@ -93,7 +93,7 @@ export function RunCard({ job, estimates, onRetry, onCancel }: RunCardProps) {
                   : undefined
             return (
               <li key={p} data-state={state} aria-current={state === "now" ? "step" : undefined}>
-                {state === "ok" ? <Icon name="check" /> : <i />}
+                {state === "ok" ? <Icon name="check" /> : <i className={state === "now" ? "mx-blink" : undefined} />}
                 {SHORT[p] ?? p}
               </li>
             )
@@ -102,14 +102,14 @@ export function RunCard({ job, estimates, onRetry, onCancel }: RunCardProps) {
         {kind === "failed" && <pre className={styles.log}>{(job.log ?? []).slice(-8).join("\n")}</pre>}
         {kind === "stopped" && <p className={styles.note}>You stopped this sort.</p>}
         {(kind === "failed" || kind === "stopped") && (
-          <button className={`${styles.btn} ${styles.solid}`} onClick={onRetry}>
+          <button className={`mx-btn small solid ${styles.btn}`} onClick={onRetry}>
             {kind === "failed" ? "Try again" : "Start again"}
           </button>
         )}
         {kind === "running" && (
           <div className={styles.acts}>
             <p className={styles.note}>Stopping ends the sort. It does not undo anything already done.</p>
-            <button className={styles.btn} onClick={onCancel}>
+            <button className={`mx-btn small ${styles.btn}`} onClick={onCancel}>
               <Icon name="x" />
               Stop sorting
             </button>

@@ -1,0 +1,28 @@
+/* The reference's shared controls, ported once and kept global as the reference keeps them (components.css lines
+   10-11, 13-25, 27-30, 63-64; the blink keyframes are app.css line 17). CSS Modules cannot share a class between
+   files, so every component that needs one of these writes its name ("mx-btn small solid") instead of owning a copy.
+   Imported before any component, so a module rule of equal specificity (.bigBtn) still wins, as in the reference. */
+.mx-sub { color: var(--faint); font-size: 13px; }
+.mx-count { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 6px; background: var(--accent-tint); color: var(--accent); font-variant-numeric: tabular-nums; }
+.mx-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 14px;
+  border-radius: 999px; border: 1px solid var(--chip-border); background: var(--surface); color: var(--ink-2);
+  font-size: 13px; font-weight: 500; white-space: nowrap; text-decoration: none;
+}
+.mx-btn:hover:not(:disabled) { color: var(--ink); border-color: var(--faint); }
+.mx-btn.solid { background: var(--ink); border-color: var(--ink); color: var(--paper); font-weight: 600; }
+.mx-btn.solid:hover:not(:disabled) { color: var(--paper); opacity: 0.88; }
+.mx-btn:active:not(:disabled) { transform: scale(0.97); }
+.mx-btn.ghost { border-color: transparent; background: none; }
+.mx-btn.small { height: 28px; padding: 0 10px; font-size: 12px; }
+.mx-btn:disabled { opacity: 0.5; cursor: default; } /* not in the reference, which never disables one */
+.mx-icon { width: 34px; height: 34px; border-radius: 50%; display: inline-grid; place-items: center; border: 1px solid var(--chip-border); background: var(--surface); color: var(--ink-2); flex: none; }
+.mx-icon:hover { color: var(--ink); }
+.mx-seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--track); max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.mx-seg button { height: 28px; padding: 0 11px; border: 0; border-radius: 7px; background: none; color: var(--ink-3); font-size: 12.5px; font-weight: 500; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+.mx-seg button:hover { color: var(--ink); }
+.mx-seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+.mx-empty { color: var(--faint); font-size: 13.5px; padding: 18px 0; margin: 0; }
+.mx-select { height: 34px; padding: 0 30px 0 12px; border-radius: 9px; border: 1px solid var(--chip-border); background: var(--surface); color: var(--ink-2); font-size: 12.5px; }
+@keyframes blink { 50% { opacity: 0.3; } }
+.mx-blink { animation: blink 1s infinite; } /* the pill's busy dot and the run card's current phase */

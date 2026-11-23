@@ -75,7 +75,7 @@ export function DonePanel({ total, folders, dupes, saved, onReplay, live = false
         <div className={styles.big}>
           <span ref={count}>{live ? "0" : fmt(total)}</span> sorted
         </div>
-        <div className={styles.sub}>
+        <div className={`mx-sub ${styles.sub}`}>
           into <b>{folders} folders</b> with one prompt
         </div>
         <div className={styles.chips}>

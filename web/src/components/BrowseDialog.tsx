@@ -3,9 +3,9 @@ import { open } from "../api/client"
 import { thumbOf } from "../state/library"
 import type { LibraryItem } from "../state/library"
 import { Dialog } from "./Dialog"
-import { DialogIcon } from "./DialogIcon"
+import { Icon } from "./Icon"
 import { Lightbox } from "./Lightbox"
-import { fmt } from "./format"
+import { fmt } from "../format"
 import d from "./Dialog.module.css"
 import s from "./BrowseDialog.module.css"
 
@@ -48,22 +48,22 @@ export function BrowseDialog({ folder, items, categories, fileManager, sorted, o
       <div className={d.head}>
         <h2 className={s.title}>
           {folder.emoji || "📁"} {folder.label}
-          <span className={d.count}>{fmt(items.length)}</span>
+          <span className="mx-count">{fmt(items.length)}</span>
         </h2>
         <div className={s.acts}>
           {sorted && (
-            <button className={`${d.btn} ${d.small}`} onClick={reveal}>
-              <DialogIcon name="folder" />
+            <button className="mx-btn small" onClick={reveal}>
+              <Icon name="folder" />
               {`Show in ${fileManager}`}
             </button>
           )}
-          <button className={d.icon} onClick={onClose} aria-label="Close">
-            <DialogIcon name="x" />
+          <button className="mx-icon" onClick={onClose} aria-label="Close">
+            <Icon name="x" />
           </button>
         </div>
       </div>
       {error && (
-        <p className={d.empty} style={{ padding: "12px 22px 0" }} role="alert">
+        <p className="mx-empty" style={{ padding: "12px 22px 0" }} role="alert">
           {error}
         </p>
       )}
@@ -76,13 +76,13 @@ export function BrowseDialog({ folder, items, categories, fileManager, sorted, o
             </button>
           ))}
           {shown < items.length && (
-            <button className={`${d.btn} ${s.more}`} onClick={() => setShown(shown + PAGE)}>
+            <button className={`mx-btn ${s.more}`} onClick={() => setShown(shown + PAGE)}>
               {`Show ${fmt(Math.min(PAGE, items.length - shown))} more`}
             </button>
           )}
         </div>
       ) : (
-        <p className={d.empty} style={{ padding: 22 }}>
+        <p className="mx-empty" style={{ padding: 22 }}>
           Nothing in this folder yet.
         </p>
       )}
