@@ -24,7 +24,7 @@ Spec references are to `docs/superpowers/specs/2026-11-21-photo-sorter-modernize
 | 5 | Text I/O | §8.4, §8.4 item 1 | Written, not yet verified | Written, not yet verified | Written, not yet verified | Partial |
 | 6 | Paths | §8.4, §8.4 item 2 | Written, not yet verified | Written, not yet verified | Written, not yet verified | Partial |
 | 7 | `claude` lookup | §8.4 | Written, not yet verified | Written, not yet verified | Written, not yet verified | Yes, fakes only |
-| 8 | Browser launch | §8.4 | Written, not yet verified | Written, not yet verified | Written, not yet verified | No |
+| 8 | Browser launch | §8.4 | Written, not yet verified | Written, not yet verified | Written, not yet verified | Partial (fake) |
 | 9 | Destination on another drive | Brief Step 2 | Written, not yet verified | Not in brief | Not in brief | No |
 | 10 | Devanagari and emoji filenames through scan, label and copy | Brief Step 2 | Written, not yet verified | Written, not yet verified | Written, not yet verified | Partial |
 | 11 | App runs without `PYTHONUTF8=1` | Brief Step 2, spec §5 and §8.4 item 1 | Written, not yet verified | Written, not yet verified | Written, not yet verified | No |
@@ -76,19 +76,19 @@ Each row gives the code's behaviour as read from the source, the unit-test evide
 
 ### 7. `claude` lookup
 
-- **Code:** `find_claude` tries `claude`, `claude.cmd`, `claude.exe`, `claude.ps1` in that order with `shutil.which`. `photosorter/core/labelers/claude.py` calls it.
+- **Code:** `find_claude` tries `claude`, `claude.cmd`, `claude.exe`, `claude.ps1` in that order with `shutil.which`. `photosorter/core/labelers/claude.py` calls it. The code tries all four names on every OS. Spec §8.4 specifies plain `claude` on macOS and Linux, so on those systems the extra names are a difference from the spec.
 - **Unit-test evidence (fakes only):** `tests/test_platform.py` replaces `shutil.which` and checks the order and the `None` result. `tests/test_labeler_claude.py` stubs the labeller. **The real Claude CLI has not been run through this lookup.**
 - **To verify (Windows):** open a new terminal and confirm `claude` is on `PATH`. Start the app, run a label phase on a small sample (`--limit 200`). Expected: the labeller starts and at least one batch returns labels. A missing CLI shows a plain message, not a crash.
 
 ### 8. Browser launch
 
 - **Code:** `photosorter/api/serve.py` starts `webbrowser.open` one second after the server starts. This is not in `platform.py`, and the code is not platform-specific, so the spec's placement is not followed. Recorded here as a deviation.
-- **Unit-test evidence:** none. No test covers the browser launch.
+- **Unit-test evidence (fakes only):** `tests/api/test_serve.py`, `test_browser_timer_is_daemon` (lines 133-145). It replaces `threading.Timer` with a spy, calls `serve(..., open_browser=True)`, asserts `assert made and made[0].daemon`, then cancels the timer. It checks only that the timer is a daemon. It does not check the delay or the URL, and `webbrowser.open` never runs, so no browser is launched. **The real browser launch has never been seen.**
 - **To verify:** run `python -m photosorter serve` on each OS. Expected: the default browser opens `http://127.0.0.1:8765/` (or the `--port` value). Record the browser used.
 
 ### 9. Destination on another drive
 
-- **Code:** the copy path uses the same `copy_file` as row 2. On Windows this is `shutil.copy2`, which copies across volumes. On macOS and Linux a cross-volume `cp -c` or `cp --reflink=auto` fails and falls back to `copy2`. `long_path` applies to the destination too.
+- **Code:** the copy path uses the same `copy_file` as row 2. On Windows this is `shutil.copy2`, which copies across volumes. On macOS and Linux a cross-volume copy is expected to fall back to `copy2`. This is expected behaviour to confirm, not a result: on macOS `cp -c` should fail across volumes and fall back; on Linux `cp --reflink=auto` should make an ordinary copy across filesystems without failing, so no fallback is expected. `long_path` applies to the destination too.
 - **Unit-test evidence:** none. No test uses two volumes.
 - **To verify (Windows):** set the source on one drive (for example `C:`) and the destination on another (for example `D:`). Run `--limit 200`, then a full sort. Expected: both CSVs are written to the destination; folders are created on that drive; the source is unchanged (hash before and after).
 
@@ -106,15 +106,16 @@ Each row gives the code's behaviour as read from the source, the unit-test evide
 
 ## Unit tests and what they do not cover
 
-Unit tests exist for rows 1 to 7 and partially for rows 5, 6 and 10. Every such test replaces the OS call (`subprocess.run`, `shutil.which`, `sys.platform`) or runs on the host filesystem with ordinary paths. None of them has been run as part of this document; the check was reading only.
+Unit tests exist for rows 1 to 7 and partially for rows 5, 6, 8 and 10. Every such test replaces an OS call or timer (`subprocess.run`, `shutil.which`, `sys.platform`, `threading.Timer`) or runs on the host filesystem with ordinary paths. None of them has been run as part of this document; the check was reading only.
 
-Rows 8, 9 and 11 have no test that covers the real behaviour.
+Rows 8, 9 and 11 have no test that covers the real behaviour. Row 8 has only the fake timer test described in its row.
 
-## Deviations from spec §8.4 noticed while writing this file
+## Deviations from spec §8.4
 
 1. Row 4: Windows open-folder uses `explorer` in the code, where the spec names `os.startfile`.
 2. Row 8: browser launch sits in `photosorter/api/serve.py`, not in `platform.py`.
-3. Row 3: on Linux the reveal opens the parent folder and does not select the file. Spec §8.4 describes this behaviour, so it is listed here only so the Linux check expects it.
+
+Each of these two deviations needs either a spec amendment or a code change. That decision sits outside this document.
 
 ## Verification record
 
