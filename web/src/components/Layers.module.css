@@ -1,0 +1,5 @@
+/* app.css 71, 74-76: the two full-viewport layers the animation layer draws into. Their ids are classes here.
+   The sphere layer (71, 73) is Stage's own inline style; its img rule (75) is written inline by sphere.ts. */
+.fly { position: fixed; inset: 0; pointer-events: none; z-index: var(--z-overlay); }
+.fly img { position: absolute; left: 0; top: 0; width: 28px; height: 28px; border-radius: 4px; will-change: transform; backface-visibility: hidden; }
+.confetti { position: fixed; inset: 0; pointer-events: none; z-index: var(--z-toast); }
