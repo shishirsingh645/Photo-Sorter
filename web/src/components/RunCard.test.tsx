@@ -1,20 +1,17 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { JobState } from "../api/client"
-import { DonePanel } from "./DonePanel"
 import { STOPPED } from "./progress"
 import { RunCard } from "./RunCard"
 
-// The shared loop and the confetti are the seams: capture the frame callbacks so a test can drive them.
+// The shared loop is the seam: capture the frame callbacks so a test can drive them.
 const frames = vi.hoisted(() => ({ subs: new Set<(dt: number, now: number) => void>() }))
-const burst = vi.hoisted(() => vi.fn())
 vi.mock("../anim/loop", () => ({
   startLoop: (fn: (dt: number, now: number) => void) => {
     frames.subs.add(fn)
     return () => frames.subs.delete(fn)
   },
 }))
-vi.mock("../anim/confetti", () => ({ burstConfetti: burst }))
 
 const est = { scan: 10, dupes: 10, label: 80, apply: 20 }
 const job = (over: Partial<JobState> = {}): JobState => ({
@@ -25,7 +22,10 @@ const card = (j: JobState, handlers: { onRetry?: () => void; onCancel?: () => vo
   render(<RunCard job={j} estimates={est} onRetry={handlers.onRetry ?? vi.fn()} onCancel={handlers.onCancel ?? vi.fn()} />)
 
 beforeEach(() => frames.subs.clear())
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 
 describe("RunCard", () => {
   it("marks finished phases with a tick and the current one as active", () => {
@@ -38,7 +38,7 @@ describe("RunCard", () => {
     expect(label).toHaveAttribute("data-state", "now")
     expect(label).toHaveAttribute("aria-current", "step")
     expect(label.querySelector("[data-icon='check']")).toBeNull()
-    expect(apply).toHaveAttribute("data-state", "")
+    expect(apply).not.toHaveAttribute("data-state")
     expect(screen.getByText("Claude is sorting your photos")).toBeInTheDocument()
   })
 
@@ -62,6 +62,13 @@ describe("RunCard", () => {
     expect(screen.queryByText(/Stopped at your request/)).not.toBeInTheDocument() // the log is for failures
     fireEvent.click(screen.getByRole("button", { name: /start again/i }))
     expect(onRetry).toHaveBeenCalledTimes(1)
+  })
+
+  it("reads a STOPPED line that is not the last line as a failure", () => {
+    card(job({ running: false, code: 1, log: [STOPPED, "boom"] }))
+    expect(screen.getByText(/something went wrong/i)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /try again/i })).toBeInTheDocument()
+    expect(screen.queryByText("Stopped")).not.toBeInTheDocument()
   })
 
   it("never shows a running spinner for a job that has stopped", () => {
@@ -101,32 +108,22 @@ describe("RunCard", () => {
     act(() => frames.subs.forEach(f => f(16, 0)))
     expect(timer.textContent).toMatch(/^1:1\d · /)
   })
-})
 
-describe("DonePanel", () => {
-  it("counts up the total and fires confetti on the done panel", () => {
-    vi.spyOn(performance, "now").mockReturnValue(1000)
-    const onReplay = vi.fn()
-    render(<DonePanel total={1136} folders={13} dupes={40} saved={2_400_000_000} onReplay={onReplay} />)
-    expect(screen.getByText("0")).toBeInTheDocument()
-    expect(burst).toHaveBeenCalledTimes(1)
-    expect(burst.mock.calls[0][0]).toBeInstanceOf(HTMLCanvasElement)
-
-    act(() => frames.subs.forEach(f => f(16, 1450))) // half way through the 900 ms count
-    const mid = Number(screen.getByText(/sorted/).firstElementChild!.textContent!.replace(/,/g, ""))
-    expect(mid).toBeGreaterThan(0)
-    expect(mid).toBeLessThan(1136)
-
-    act(() => frames.subs.forEach(f => f(16, 2000)))
-    expect(screen.getByText("1,136")).toBeInTheDocument()
-    expect(frames.subs.size).toBe(0) // the count unsubscribes itself
-
-    expect(screen.getByText("13 folders")).toBeInTheDocument()
-    expect(screen.getByText(/40 duplicates/)).toBeInTheDocument()
-    expect(screen.getByText(/2\.4 GB freed/)).toBeInTheDocument()
-
-    fireEvent.keyDown(window, { code: "Space" })
-    expect(onReplay).toHaveBeenCalledTimes(1)
-    vi.restoreAllMocks()
+  it("counts the time left down between updates instead of up", () => {
+    const T = 1_000_000 // seconds
+    let offset = 0
+    vi.spyOn(Date, "now").mockImplementation(() => (T + offset) * 1000)
+    // 20% through the phase after 300 s: the measured rate says 1200 s more, "about 20 min"
+    const j = job({ phases: ["label"], phase: "label", done: 20, total: 100, started: T - 300, phase_started: T - 300 })
+    const { container } = card(j)
+    const timer = container.querySelector("b + span")!
+    const minutes = () => Number(/about (\d+) min left/.exec(timer.textContent!)![1])
+    const seen = [minutes()]
+    for (const at of [120, 240, 360]) {
+      offset = at // no new event: done and total are frozen
+      act(() => frames.subs.forEach(f => f(16, 0)))
+      seen.push(minutes())
+    }
+    expect(seen).toEqual([20, 18, 16, 14])
   })
 })

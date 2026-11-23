@@ -37,17 +37,21 @@ export function RunCard({ job, estimates, onRetry, onCancel }: RunCardProps) {
   const timer = useRef<HTMLSpanElement>(null)
 
   // The timer is written straight to the DOM from the shared frame loop, so a tick never re-renders the tree.
-  const latest = useRef({ job, estimates, kind })
-  latest.current = { job, estimates, kind }
+  // `done` and `total` only change when an event arrives, so the time left is worked out as of that moment (the
+  // reference's `remaining()` at `j.now`) and then counted down locally, as app.js 563 does.
+  const received = useRef({ job, at: Date.now() / 1000 })
+  if (received.current.job !== job) received.current = { job, at: Date.now() / 1000 }
+  const latest = useRef({ job, estimates, kind, at: received.current.at })
+  latest.current = { job, estimates, kind, at: received.current.at }
   useEffect(() => {
     const paint = () => {
       const el = timer.current
-      const { job: j, estimates: est, kind: k } = latest.current
+      const { job: j, estimates: est, kind: k, at } = latest.current
       if (!el || !j.started) return
       let text: string
       if (k === "running") {
         const now = Date.now() / 1000
-        const left = remainingSeconds(j, est, now)
+        const left = remainingSeconds(j, est, at) - (now - at)
         text = `${mmss(Math.max(0, now - j.started))} · ${left > 5 ? roughly(left) + " left" : "almost done"}`
       } else {
         // the server sends no end time: what its phases measured is the nearest thing to elapsed
@@ -85,8 +89,8 @@ export function RunCard({ job, estimates, onRetry, onCancel }: RunCardProps) {
                     ? "bad"
                     : kind === "running"
                       ? "now"
-                      : ""
-                  : ""
+                      : undefined
+                  : undefined
             return (
               <li key={p} data-state={state} aria-current={state === "now" ? "step" : undefined}>
                 {state === "ok" ? <Icon name="check" /> : <i />}

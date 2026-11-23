@@ -15,13 +15,16 @@ export interface DonePanelProps {
   saved: number
   /** Space plays the sort back, as in the reference. */
   onReplay: () => void
+  /** True only for a sort that has just finished: it counts the total up and bursts confetti. Loading a sort that
+   * finished earlier (the default) shows the number as it is, like the reference's `showDone(false)`. */
+  live?: boolean
 }
 
 const fmt = (n: number) => Math.round(n).toLocaleString("en-US")
 const ease = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2) // app.js 237
 const COUNT_MS = 900
 
-export function DonePanel({ total, folders, dupes, saved, onReplay }: DonePanelProps) {
+export function DonePanel({ total, folders, dupes, saved, onReplay, live = false }: DonePanelProps) {
   const root = useRef<HTMLDivElement>(null)
   const count = useRef<HTMLSpanElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
@@ -32,7 +35,7 @@ export function DonePanel({ total, folders, dupes, saved, onReplay }: DonePanelP
   // The count and the burst both run on the shared frame loop; neither puts a frame into React state.
   useEffect(() => {
     const el = count.current
-    if (!el) return
+    if (!live || !el) return
     const start = performance.now()
     const stop = startLoop((_dt, now) => {
       const p = Math.min(1, (now - start) / COUNT_MS)
@@ -40,20 +43,20 @@ export function DonePanel({ total, folders, dupes, saved, onReplay }: DonePanelP
       if (p >= 1) stop()
     })
     return stop
-  }, [total])
+  }, [total, live])
 
   useEffect(() => {
-    if (burst.current || !canvas.current || !root.current) return
+    if (!live || burst.current || !canvas.current || !root.current) return
     burst.current = true
     const r = root.current.getBoundingClientRect()
     burstConfetti(canvas.current, { x: r.left + r.width / 2, y: r.top + r.height / 2 })
-  }, [])
+  }, [live])
 
   // app.js 729-732
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as Element | null
-      if (t?.matches?.("input, textarea, select, button, a") || document.querySelector('[role="dialog"]')) return
+      if (t?.matches?.("input, textarea, select") || document.querySelector('[role="dialog"]')) return
       if (e.code === "Space") {
         e.preventDefault()
         replay.current()
@@ -70,7 +73,7 @@ export function DonePanel({ total, folders, dupes, saved, onReplay }: DonePanelP
           <Icon name="check" />
         </div>
         <div className={styles.big}>
-          <span ref={count}>0</span> sorted
+          <span ref={count}>{live ? "0" : fmt(total)}</span> sorted
         </div>
         <div className={styles.sub}>
           into <b>{folders} folders</b> with one prompt
