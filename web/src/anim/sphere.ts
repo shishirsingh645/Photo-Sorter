@@ -25,7 +25,7 @@ export type Sphere = {
   draw(dt: number): void
   tileFor(id: string): Tile | undefined
   /** `id` makes a repeat retire for the same file a no-op, like the reference's `flown` set. */
-  retire(tile: Tile, id?: string): void
+  retire(tile: Tile, id: string): void
   clear(): void
 }
 
@@ -125,10 +125,8 @@ export function createSphere(container: HTMLElement, srcs: string[]): Sphere {
 
     /** One of the tile's files has flown; the tile goes dark only when its last one has. */
     retire(tile, id) {
-      if (id !== undefined) {
-        if (flown.has(id)) return
-        flown.add(id)
-      }
+      if (flown.has(id)) return
+      flown.add(id)
       if (--tile.left <= 0) {
         tile.alive = false
         tile.el.style.opacity = "0"
