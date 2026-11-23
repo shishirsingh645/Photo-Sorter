@@ -1,0 +1,1021 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Photo Sorter",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/state": {
+      "get": {
+        "summary": "Get State",
+        "operationId": "get_state_api_state_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppState"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events": {
+      "get": {
+        "summary": "Get Events",
+        "operationId": "get_events_api_events_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sort": {
+      "post": {
+        "summary": "Sort",
+        "description": "The whole pipeline. The scan is the slow part, so it is skipped when its answer still fits.",
+        "operationId": "sort_api_sort_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SortIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppState"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/run": {
+      "post": {
+        "summary": "Run One",
+        "description": "One phase on its own, through the same machinery and the same phase bodies as /api/sort.",
+        "operationId": "run_one_api_run_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppState"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cancel": {
+      "post": {
+        "summary": "Cancel",
+        "description": "Ask the running job to stop. Nothing running is not an error: Stop twice is still stopped.",
+        "operationId": "cancel_api_cancel_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppState"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/labels": {
+      "get": {
+        "summary": "Get Labels",
+        "description": "Spec 7.4: the labels written SO FAR, so a half-finished labelling run is visible live.\n\nThe Claude batches on disk in sorted filename order, then Jev's answer wherever Claude has none or\nJev is confident - the first two steps of the apply merge (spec 7.3), so what the page animates is\nwhat the sort will actually do. A damaged file is skipped rather than allowed to blank the live view.",
+        "operationId": "get_labels_api_labels_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Get Labels Api Labels Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/peek": {
+      "post": {
+        "summary": "Peek",
+        "operationId": "peek_api_peek_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PeekIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Peek Api Peek Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pick": {
+      "post": {
+        "summary": "Pick",
+        "operationId": "pick_api_pick_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PickIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Pick Api Pick Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/open": {
+      "post": {
+        "summary": "Open It",
+        "operationId": "open_it_api_open_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Open It Api Open Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/categories": {
+      "post": {
+        "summary": "Set Categories",
+        "operationId": "set_categories_api_categories_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoriesIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Set Categories Api Categories Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/move": {
+      "post": {
+        "summary": "Move",
+        "operationId": "move_api_move_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Move Api Move Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/record/{file_id}": {
+      "get": {
+        "summary": "Get Record",
+        "operationId": "get_record_api_record__file_id__get",
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "File Id"
+            }
+          },
+          {
+            "name": "sha",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sha"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Record Api Record  File Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/file/{file_id}": {
+      "get": {
+        "summary": "Get File",
+        "operationId": "get_file_api_file__file_id__get",
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "File Id"
+            }
+          },
+          {
+            "name": "sha",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sha"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AppState": {
+        "properties": {
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryOut"
+            },
+            "type": "array",
+            "title": "Categories"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
+          "sorted": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sorted"
+          },
+          "files": {
+            "type": "integer",
+            "title": "Files",
+            "default": 0
+          },
+          "bytes": {
+            "type": "integer",
+            "title": "Bytes",
+            "default": 0
+          },
+          "steps": {
+            "$ref": "#/components/schemas/StepFlags"
+          },
+          "jev_key": {
+            "type": "boolean",
+            "title": "Jev Key"
+          },
+          "claude_cli": {
+            "type": "boolean",
+            "title": "Claude Cli"
+          },
+          "overrides": {
+            "type": "integer",
+            "title": "Overrides",
+            "default": 0
+          },
+          "job": {
+            "$ref": "#/components/schemas/JobState"
+          },
+          "platform": {
+            "type": "string",
+            "title": "Platform"
+          },
+          "file_manager": {
+            "type": "string",
+            "title": "File Manager"
+          },
+          "picker_available": {
+            "type": "boolean",
+            "title": "Picker Available"
+          },
+          "picker_reason": {
+            "type": "string",
+            "title": "Picker Reason",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "categories",
+          "steps",
+          "jev_key",
+          "claude_cli",
+          "job",
+          "platform",
+          "file_manager",
+          "picker_available"
+        ],
+        "title": "AppState"
+      },
+      "CategoriesIn": {
+        "properties": {
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryIn"
+            },
+            "type": "array",
+            "title": "Categories"
+          }
+        },
+        "type": "object",
+        "required": [
+          "categories"
+        ],
+        "title": "CategoriesIn"
+      },
+      "CategoryIn": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Key"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "photo",
+              "video"
+            ],
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "emoji": {
+            "type": "string",
+            "title": "Emoji"
+          },
+          "rule": {
+            "type": "string",
+            "title": "Rule"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "kind",
+          "label",
+          "emoji",
+          "rule"
+        ],
+        "title": "CategoryIn"
+      },
+      "CategoryOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "emoji": {
+            "type": "string",
+            "title": "Emoji"
+          },
+          "rule": {
+            "type": "string",
+            "title": "Rule"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "kind",
+          "label",
+          "emoji",
+          "rule"
+        ],
+        "title": "CategoryOut"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "JobState": {
+        "properties": {
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "running": {
+            "type": "boolean",
+            "title": "Running",
+            "default": false
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "phases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Phases"
+          },
+          "done": {
+            "type": "integer",
+            "title": "Done",
+            "default": 0
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          },
+          "started": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started"
+          },
+          "phase_started": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase Started"
+          },
+          "timings": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Timings"
+          },
+          "log": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Log"
+          }
+        },
+        "type": "object",
+        "title": "JobState",
+        "description": "The one job the runner may be running. All defaults mean \"idle\"."
+      },
+      "MoveIn": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "key"
+        ],
+        "title": "MoveIn"
+      },
+      "OpenIn": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "folder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder"
+          }
+        },
+        "type": "object",
+        "title": "OpenIn"
+      },
+      "PeekIn": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source"
+        ],
+        "title": "PeekIn"
+      },
+      "PickIn": {
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "title": "Prompt",
+            "default": "Choose a folder"
+          }
+        },
+        "type": "object",
+        "title": "PickIn"
+      },
+      "RunIn": {
+        "properties": {
+          "step": {
+            "type": "string",
+            "enum": [
+              "scan",
+              "dupes",
+              "label",
+              "apply"
+            ],
+            "title": "Step"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "dest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dest"
+          },
+          "labeler": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "jev",
+              "stub"
+            ],
+            "title": "Labeler",
+            "default": "claude"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Limit",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "step"
+        ],
+        "title": "RunIn",
+        "description": "One phase on its own. The fields a phase does not need are left out of the request."
+      },
+      "SortIn": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "dest": {
+            "type": "string",
+            "title": "Dest"
+          },
+          "labeler": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "jev",
+              "stub"
+            ],
+            "title": "Labeler",
+            "default": "claude"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Limit",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "dest"
+        ],
+        "title": "SortIn"
+      },
+      "StepFlags": {
+        "properties": {
+          "scan": {
+            "type": "boolean",
+            "title": "Scan",
+            "default": false
+          },
+          "dupes": {
+            "type": "boolean",
+            "title": "Dupes",
+            "default": false
+          },
+          "label": {
+            "type": "boolean",
+            "title": "Label",
+            "default": false
+          },
+          "jev_labels": {
+            "type": "boolean",
+            "title": "Jev Labels",
+            "default": false
+          },
+          "apply": {
+            "type": "boolean",
+            "title": "Apply",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "StepFlags"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
