@@ -83,12 +83,12 @@ Each row gives the code's behaviour as read from the source, the unit-test evide
 ### 8. Browser launch
 
 - **Code:** `photosorter/api/serve.py` starts `webbrowser.open` one second after the server starts. This is not in `platform.py`, and the code is not platform-specific, so the spec's placement is not followed. Recorded here as a deviation.
-- **Unit-test evidence (fakes only):** `tests/api/test_serve.py`, `test_browser_timer_is_daemon` (lines 133-145). It replaces `threading.Timer` with a spy, calls `serve(..., open_browser=True)`, asserts `assert made and made[0].daemon`, then cancels the timer. It checks only that the timer is a daemon. It does not check the delay or the URL, and `webbrowser.open` never runs, so no browser is launched. **The real browser launch has never been seen.**
+- **Unit-test evidence (fakes only):** `tests/api/test_serve.py`, `test_browser_timer_is_daemon` (lines 133-145). It replaces `threading.Timer` with a spy, calls `serve(..., open_browser=True)`, asserts `assert made and made[0].daemon`, then cancels the timer. It checks only that the timer is a daemon. It does not check the delay or the URL. The test cancels the timer before its one-second delay elapses, so `webbrowser.open` never runs. Nothing enforces that timing. **The real browser launch has never been seen.**
 - **To verify:** run `python -m photosorter serve` on each OS. Expected: the default browser opens `http://127.0.0.1:8765/` (or the `--port` value). Record the browser used.
 
 ### 9. Destination on another drive
 
-- **Code:** the copy path uses the same `copy_file` as row 2. On Windows this is `shutil.copy2`, which copies across volumes. On macOS and Linux a cross-volume copy is expected to fall back to `copy2`. This is expected behaviour to confirm, not a result: on macOS `cp -c` should fail across volumes and fall back; on Linux `cp --reflink=auto` should make an ordinary copy across filesystems without failing, so no fallback is expected. `long_path` applies to the destination too.
+- **Code:** the copy path uses the same `copy_file` as row 2. On Windows this is `shutil.copy2`, which copies across volumes. On macOS, a cross-volume `cp -c` is expected to fail and fall back to `copy2`. This is expected behaviour to confirm, not a result. On Linux, `cp --reflink=auto` is expected to make an ordinary copy across filesystems without failing, so no fallback is expected. `long_path` applies to the destination too.
 - **Unit-test evidence:** none. No test uses two volumes.
 - **To verify (Windows):** set the source on one drive (for example `C:`) and the destination on another (for example `D:`). Run `--limit 200`, then a full sort. Expected: both CSVs are written to the destination; folders are created on that drive; the source is unchanged (hash before and after).
 
@@ -114,8 +114,9 @@ Rows 8, 9 and 11 have no test that covers the real behaviour. Row 8 has only the
 
 1. Row 4: Windows open-folder uses `explorer` in the code, where the spec names `os.startfile`.
 2. Row 8: browser launch sits in `photosorter/api/serve.py`, not in `platform.py`.
+3. Row 7: `find_claude` tries `claude`, `claude.cmd`, `claude.exe` and `claude.ps1` on every OS, where spec §8.4 specifies plain `claude` on macOS and Linux.
 
-Each of these two deviations needs either a spec amendment or a code change. That decision sits outside this document.
+Each of these three deviations needs either a spec amendment or a code change. That decision sits outside this document.
 
 ## Verification record
 
