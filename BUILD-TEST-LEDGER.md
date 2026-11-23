@@ -29,7 +29,7 @@ Last green suite: 206 tests, at 6101836 (end of Plan 1).
 | P3 T6 — running panel and done panel | `components/RunCard.tsx`, `DonePanel.tsx`, `progress.ts` | `web/src/components/{RunCard,DonePanel}.test.tsx`, `progress.test.ts` |
 | P3 T7 — dialogs: folders, browse, lightbox, paid confirm | `components/Dialog.tsx`, `FoldersDialog.tsx`, `BrowseDialog.tsx`, `Lightbox.tsx`, `PaidConfirm.tsx` | `web/src/components/{Dialog,FoldersDialog,BrowseDialog,Lightbox,PaidConfirm}.test.tsx` |
 | P3 T8 — assembly, demo mode, URL parameters, built `web/dist` (the 20-row parity sweep is deferred by ruling P3-4) | `App.tsx`, `demo.ts`, `state/library.ts`, `styles/components.css`, `web/dist/` | `web/src/App.test.tsx` (including the live-sort tests), `demo.test.ts`, `state/library.test.ts`, `styles/components.test.ts` |
-| P3 T8 final-review fixes (state refresh, inventory cache, sphere anchor, demo lightbox, dev proxy, reduced motion) | `App.tsx`, `anim/sphere.ts`, `components/{Stage,Lightbox,BrowseDialog}.tsx`, `vite.config.ts`, `photosorter/api/app.py` | the files above, plus `tests/api/test_origin_guard.py` |
+| P3 T8 final-review fixes (state refresh, inventory cache, sphere anchor, demo lightbox, dev proxy, reduced motion) | `App.tsx`, `anim/sphere.ts`, `components/{Stage,Lightbox,BrowseDialog}.tsx`, `vite.config.ts`, `photosorter/api/app.py` | the files above, plus `tests/api/test_origin_guard.py` (security-sensitive: the Origin guard's dev-only allowance) |
 | P3 T9 — platform support document (no automated test: its check is a manual pass, recorded in the document) | `docs/platform-support.md` | none to run |
 
 ## Still to build
@@ -41,5 +41,5 @@ Last green suite: 206 tests, at 6101836 (end of Plan 1).
 ## To test at the end
 
 1. `pytest` for the engine and server, and `npm test` in `web/` for the dashboard: the whole suite, after Plan 3. Plan 3 is built; nothing in its nine rows above has been run.
-2. The merged-but-unrun P2 T2 / T3 / T4 suites above (including `tests/api/test_jobs_routes.py`) are the first suspects on failure.
+2. The merged-but-unrun P2 T2 / T3 / T4 suites above (including `tests/api/test_jobs_routes.py`), and `tests/api/test_origin_guard.py` (the Origin guard's dev-only allowance, the project's one security-sensitive change: run it first), are the first suspects on failure.
 3. End-to-end: `photosorter serve`, a real sort over HTTP, a browser reload mid-sort.
