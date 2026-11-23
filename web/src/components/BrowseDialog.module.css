@@ -1,0 +1,12 @@
+/* Ported from the reference app.css 149-151 and 158-165. */
+[role="dialog"].wide { width: min(1080px, 100%); height: 86dvh; }
+.acts { display: flex; gap: 6px; align-items: center; margin: 0; }
+.title { display: flex; align-items: center; gap: 8px; }
+.browse { flex: 1; overflow-y: auto; padding: 16px 22px; display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); grid-auto-rows: max-content; gap: 6px; align-content: start; }
+.browse button { position: relative; display: block; padding: 0; border: 0; border-radius: var(--r-sm); overflow: hidden; background: var(--hover); }
+.browse button::before { content: ""; display: block; padding-top: 100%; }
+.browse img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; transition: transform var(--dur-3) var(--ease); }
+.browse button:hover img { transform: scale(1.04); }
+.browse .vid { position: absolute; left: 6px; bottom: 6px; padding: 1px 6px; border-radius: 999px; background: #000a; color: #fff; font-size: 10.5px; }
+.browse .more { grid-column: 1 / -1; background: none; padding: 12px; }
+.browse .more::before { display: none; }

@@ -1,0 +1,11 @@
+/* Ported from the reference app.css 152-157 and the 900px rule's folder-row lines (189-190). */
+.folderRow { display: grid; grid-template-columns: 52px minmax(0, 1fr) minmax(0, 1.6fr) auto 34px; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--hair); }
+.folderRow input { height: 34px; padding: 0 10px; border-radius: 9px; border: 1px solid var(--chip-border); background: var(--paper); color: var(--ink); min-width: 0; }
+.folderRow input.emoji { text-align: center; font-size: 16px; padding: 0; }
+.folderList h4 { margin: 16px 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
+.note { margin: 10px 0 0; color: var(--ink-3); font-size: 12px; }
+@media (max-width: 900px) {
+  .folderRow { grid-template-columns: 44px minmax(0, 1fr) 34px; }
+  .folderRow .rule, .folderRow .seg { grid-column: 2 / -1; }
+}
+.error { margin: 0; padding: 10px 22px 0; color: var(--brand); font-size: 12.5px; } /* not in the reference: its error placement */
