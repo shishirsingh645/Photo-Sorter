@@ -51,10 +51,11 @@ def test_picker_available_reports_plain_words_when_tkinter_missing(monkeypatch):
     assert "directory" not in reason
 
 
-def test_child_process_crash_returns_none_not_exception(monkeypatch):
+def test_child_process_crash_is_a_failure_not_a_cancel(monkeypatch):
     _stub_child(monkeypatch, "D:\\pics\n", returncode=1)
 
-    assert choose_folder("x") is None
+    with pytest.raises(PickerFailed):
+        choose_folder("x")
 
 
 def test_choose_folder_fails_when_child_times_out(monkeypatch):

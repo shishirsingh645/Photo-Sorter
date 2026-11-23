@@ -151,6 +151,16 @@ describe("SetupCard", () => {
     expect(screen.queryByRole("button", { name: "Remove People" })).toBeNull() // gone at once, not after a refresh
   })
 
+  it("does not tell the parent about a save the server refused, and puts the chip back", async () => {
+    vi.mocked(client.saveCategories).mockRejectedValue(new ApiError("Those folders could not be saved.", 400))
+    const { onCategoriesSaved } = show(state(), both)
+    fireEvent.click(screen.getByRole("button", { name: /advanced/i }))
+    fireEvent.click(screen.getByRole("button", { name: "Remove People" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent("Those folders could not be saved.")
+    expect(onCategoriesSaved).not.toHaveBeenCalled()
+    expect(screen.getByRole("button", { name: "Remove People" })).toBeInTheDocument()
+  })
+
   it("keeps the new folder before the catch-all of its kind", async () => {
     vi.mocked(client.saveCategories).mockResolvedValue({ ok: true, count: 0 })
     show(state(), both)
@@ -187,10 +197,10 @@ describe("SetupCard", () => {
   })
 
   it("shows the server's reason when the folder window crashed instead of closing", async () => {
-    vi.mocked(client.pick).mockResolvedValueOnce({ path: null, reason: "The folder window closed unexpectedly." })
+    vi.mocked(client.pick).mockResolvedValueOnce({ path: null, reason: "The folder window did not work." })
     show(state())
     fireEvent.click(screen.getByRole("button", { name: /choose folder/i }))
-    expect(await screen.findByRole("alert")).toHaveTextContent("The folder window closed unexpectedly.")
+    expect(await screen.findByRole("alert")).toHaveTextContent("The folder window did not work.")
   })
 
   it("tells the user when a folder window is already open, and when the server is unreachable", async () => {

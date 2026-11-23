@@ -91,7 +91,7 @@ def pick(body: PickIn) -> dict:
     try:
         chosen = choose_folder(body.prompt)
     except PickerFailed:
-        return {"path": None, "reason": "The folder window closed unexpectedly."}
+        return {"path": None, "reason": "The folder window did not work."}
     finally:
         _pick_lock.release()
     return {"path": str(chosen) if chosen else None, "reason": ""}
