@@ -20,6 +20,7 @@ Last green suite: 206 tests, at 6101836 (end of Plan 1).
 |---|---|---|
 | P2 T2 — job runner, SSE stream | `photosorter/jobs.py`, `api/routes_events.py` | `tests/test_jobs.py`, `tests/api/test_events.py` |
 | P2 T4 — peek/pick/open/categories/move routes | `api/routes_folders.py`, `core/categories.py`, `core/apply.py` | `tests/api/test_folders_routes.py`, `tests/test_apply.py` |
+| P2 T3 — `/api/sort`, `/api/run`, `/api/cancel`, `/api/labels` | `api/routes_jobs.py` | `tests/api/test_jobs_routes.py` |
 | P3 T1 — scaffold, design tokens, theme | `web/` (Vite, React, TypeScript), `styles/tokens.css`, `hooks/useTheme.ts` | `web/src/hooks/useTheme.test.ts` |
 | P3 T2 — typed API client, reducer, the two hooks | `api/client.ts`, `state/reducer.ts`, `hooks/useAppState.ts`, `hooks/useJobEvents.ts` | `web/src/api/client.test.ts`, `state/reducer.test.ts`, `hooks/useJobEvents.test.ts` |
 | P3 T3 — chrome: top bar, KPI row, folder cards, board | `components/Topbar.tsx`, `KpiRow.tsx`, `FolderCard.tsx`, `Board.tsx`, `TitleRow.tsx` | `web/src/components/{Topbar,KpiRow,FolderCard,Board,TitleRow}.test.tsx`, `web/src/format.test.ts` |
@@ -35,11 +36,10 @@ Last green suite: 206 tests, at 6101836 (end of Plan 1).
 
 | Item | Plan |
 |---|---|
-| P2 T3 — `/api/sort`, `/api/run`, `/api/cancel`, `/api/labels` | Plan 2 |
 | Jev (TypeSafe) labeller — spec 7.2, backlog item B1 | unplanned |
 
 ## To test at the end
 
 1. `pytest` for the engine and server, and `npm test` in `web/` for the dashboard: the whole suite, after Plan 3. Plan 3 is built; nothing in its nine rows above has been run.
-2. The merged-but-unrun P2 T2 / T4 suites above are the first suspects on failure.
+2. The merged-but-unrun P2 T2 / T3 / T4 suites above (including `tests/api/test_jobs_routes.py`) are the first suspects on failure.
 3. End-to-end: `photosorter serve`, a real sort over HTTP, a browser reload mid-sort.
