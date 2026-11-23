@@ -27,9 +27,11 @@ interface Props {
   sorted: boolean
   onMoved: (item: LibraryItem, key: string) => void
   onClose: () => void
+  /** The demo library: the lightbox shows each photo's thumbnail instead of asking the server for the file. */
+  demo?: boolean
 }
 
-export function BrowseDialog({ folder, items, categories, fileManager, sorted, onMoved, onClose }: Props) {
+export function BrowseDialog({ folder, items, categories, fileManager, sorted, onMoved, onClose, demo }: Props) {
   const [shown, setShown] = useState(PAGE)
   const [viewing, setViewing] = useState<number | null>(null)
   const [error, setError] = useState("")
@@ -96,6 +98,7 @@ export function BrowseDialog({ folder, items, categories, fileManager, sorted, o
         onIndex={setViewing}
         onMoved={onMoved}
         onClose={() => setViewing(null)}
+        demo={demo}
       />
     )}
     </>

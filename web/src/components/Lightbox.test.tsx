@@ -208,6 +208,28 @@ describe("Lightbox", () => {
     expect(open).toHaveBeenCalledWith({ id: 6 })
   })
 
+  it("in the demo shows the thumbnail itself, a video's too, and never asks for the record", () => {
+    const at = (i: number) => (
+      <Lightbox items={[item(3), item(9, "video", "clips")]} index={i} categories={categories} onIndex={vi.fn()} onMoved={vi.fn()} onClose={vi.fn()} demo />
+    )
+    const { rerender } = render(at(0))
+    expect(screen.getByRole("img", { name: "IMG_3" })).toHaveAttribute("src", "/data/thumbs/3.jpg")
+    expect(screen.queryByText("Loading…")).toBeNull()
+
+    rerender(at(1))
+    expect(screen.getByRole("img", { name: "IMG_9" })).toHaveAttribute("src", "/data/thumbs/9.jpg")
+    expect(document.querySelector("video")).toBeNull() // the demo has no video files, only its thumbnail
+    expect(getRecord).not.toHaveBeenCalled()
+  })
+
+  it("reaches the lightbox from the browse dialog's own demo flag", () => {
+    render(<BrowseDialog folder={{ key: "beach", label: "Beach" }} items={[item(0)]} categories={categories} fileManager="File Explorer" sorted={false} onMoved={vi.fn()} onClose={vi.fn()} demo />)
+    fireEvent.click(screen.getByRole("button", { name: "IMG_0" }))
+    const lightbox = screen.getAllByRole("dialog")[1]
+    expect(within(lightbox).getByRole("img", { name: "IMG_0" })).toHaveAttribute("src", "/data/thumbs/0.jpg")
+    expect(getRecord).not.toHaveBeenCalled()
+  })
+
   it("closes on Escape without closing the dialog under it, and returns focus to the thumbnail", async () => {
     render(<BrowseDialog folder={{ key: "beach", label: "Beach" }} items={[item(0), item(1)]} categories={categories} fileManager="File Explorer" sorted onMoved={vi.fn()} onClose={vi.fn()} />)
     const thumb = screen.getByRole("button", { name: "IMG_1" })

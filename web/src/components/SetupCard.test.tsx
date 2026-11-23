@@ -24,7 +24,7 @@ const state = (over: Partial<AppState> = {}): AppState =>
     ...over,
   }) as AppState // fmt: skip
 const peek = (over: Partial<PeekResult> = {}): PeekResult => ({
-  source: "D:\\Photos", photos: 90, videos: 10, bytes: 2e9, previews: 20,
+  source: "D:\\Photos", photos: 90, videos: 10, bytes: 2e9, previews: [],
   suggested_dest: "D:\\Photos (sorted)", preview_bytes_needed: 1e6, free_bytes: 1e12, ...over,
 }) // fmt: skip
 const none: Picked = { source: null, dest: null, peek: null }

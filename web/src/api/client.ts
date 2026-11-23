@@ -14,7 +14,8 @@ export interface PeekResult {
   photos: number
   videos: number
   bytes: number
-  previews: number
+  /** Bare file names, "0000.jpg": the page reads them from /peek/. */
+  previews: string[]
   suggested_dest: string
   preview_bytes_needed: number
   free_bytes: number

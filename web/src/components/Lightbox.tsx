@@ -16,6 +16,9 @@ interface Props {
   /** After the server stored the move; the caller owns the item's new folder. */
   onMoved: (item: LibraryItem, key: string) => void
   onClose: () => void
+  /** The demo has only thumbnails, and its server refuses the file and record routes: show the thumbnail, for a
+   * video too (the reference's `full = it.src`), and do not ask for a record. */
+  demo?: boolean
 }
 
 type Loaded = { id: number; record: FileRecord } | { id: number; error: ApiError }
@@ -36,7 +39,7 @@ function Failure({ error }: { error: ApiError }) {
   return <>{error.message}</>
 }
 
-export function Lightbox({ items, index, categories, onIndex, onMoved, onClose }: Props) {
+export function Lightbox({ items, index, categories, onIndex, onMoved, onClose, demo = false }: Props) {
   const item = items[index]
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [moved, setMoved] = useState<Record<number, string>>({})
@@ -45,6 +48,7 @@ export function Lightbox({ items, index, categories, onIndex, onMoved, onClose }
   // The full record, fetched when a photo is opened or navigated to. The sha is the one the inventory
   // showed us, so a rescan since then comes back as a 409 instead of a different photo.
   useEffect(() => {
+    if (demo) return
     let current = true
     getRecord(item.id, item.sha256).then(
       (record) => current && setLoaded({ id: item.id, record }),
@@ -53,7 +57,7 @@ export function Lightbox({ items, index, categories, onIndex, onMoved, onClose }
     return () => {
       current = false
     }
-  }, [item.id, item.sha256])
+  }, [item.id, item.sha256, demo])
 
   const go = (i: number) => i >= 0 && i < items.length && onIndex(i)
   useEffect(() => {
@@ -76,7 +80,7 @@ export function Lightbox({ items, index, categories, onIndex, onMoved, onClose }
   const kinds = categories.filter((c) => c.kind === item.kind)
   const current = moved[item.id] ?? item.cat ?? ""
   const known = kinds.some((c) => c.key === current)
-  const src = `/api/file/${item.id}?sha=${encodeURIComponent(item.sha256)}` // the file route needs the sha too
+  const src = demo ? thumbOf(item) : `/api/file/${item.id}?sha=${encodeURIComponent(item.sha256)}` // the file route needs the sha too
 
   async function onMove(key: string) {
     try {
@@ -99,8 +103,10 @@ export function Lightbox({ items, index, categories, onIndex, onMoved, onClose }
 
   return (
     <Dialog label={item.name} onClose={onClose} scrim={false} initialFocus="root" className={s.lightbox}>
-      <div className={s.media} aria-busy={!mine}>
-        {!mine ? (
+      <div className={s.media} aria-busy={!demo && !mine}>
+        {demo ? (
+          <img key={item.id} src={src} alt={item.name} />
+        ) : !mine ? (
           <p className={s.notice}>Loading…</p>
         ) : mine && "error" in mine ? (
           <p className={s.notice} role="alert">
