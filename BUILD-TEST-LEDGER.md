@@ -30,7 +30,7 @@ Last green suite: 206 tests, at 6101836 (end of Plan 1).
 | P3 T7 — dialogs: folders, browse, lightbox, paid confirm | `components/Dialog.tsx`, `FoldersDialog.tsx`, `BrowseDialog.tsx`, `Lightbox.tsx`, `PaidConfirm.tsx` | `web/src/components/{Dialog,FoldersDialog,BrowseDialog,Lightbox,PaidConfirm}.test.tsx` |
 | P3 T8 — assembly, demo mode, URL parameters, built `web/dist` (the 20-row parity sweep is deferred by ruling P3-4) | `App.tsx`, `demo.ts`, `state/library.ts`, `styles/components.css`, `web/dist/` | `web/src/App.test.tsx` (including the live-sort tests), `demo.test.ts`, `state/library.test.ts`, `styles/components.test.ts` |
 | P3 T8 final-review fixes (state refresh, inventory cache, sphere anchor, demo lightbox, dev proxy, reduced motion) | `App.tsx`, `anim/sphere.ts`, `components/{Stage,Lightbox,BrowseDialog}.tsx`, `vite.config.ts`, `photosorter/api/app.py` | the files above, plus `tests/api/test_origin_guard.py` (security-sensitive: the Origin guard's dev-only allowance) |
-| P3 T9 — platform support document (no automated test: its check is a manual pass, recorded in the document) | `docs/platform-support.md` | none to run |
+| P3 T9 — platform support document (no automated test: a manual pass on real hardware, not yet performed; every row in `docs/platform-support.md` is marked written, not yet verified) | `docs/platform-support.md` | none to run |
 
 ## Still to build
 
