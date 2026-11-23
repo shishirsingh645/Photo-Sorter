@@ -120,7 +120,7 @@ npm ci
 npm run build        # type-checks, then writes web/dist/
 ```
 
-To work on the page with hot reload, run `photo-sorter serve --dev` in one terminal and `npm run dev` in `web/` in another, then open the Vite address. `npm run gen:api` regenerates `web/src/api/types.ts` from the server's schema; never edit that file by hand. Tests: `pytest` for the engine and server, `npm test` in `web/` for the dashboard.
+To work on the page with hot reload, run `photo-sorter serve --dev` in one terminal and `npm run dev` in `web/` in another, then open http://localhost:5173. Vite forwards `/api`, `/data`, `/demo` and `/peek` to the server on port 8765, and `--dev` is the only mode in which the server accepts a POST from Vite's origin. `npm run gen:api` regenerates `web/src/api/types.ts` from the server's schema; never edit that file by hand. Tests: `pytest` for the engine and server, `npm test` in `web/` for the dashboard.
 
 Contributors and coding agents: read [`CLAUDE.md`](CLAUDE.md).
 

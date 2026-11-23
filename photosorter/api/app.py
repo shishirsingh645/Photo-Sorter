@@ -11,6 +11,8 @@ from photosorter.api.static import mount_frontend
 from photosorter.config import Paths
 
 MUTATING = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+#: Where `npm run dev` serves the page (web/vite.config.ts pins it). Only `create_app(dev=True)` trusts it.
+VITE_PORT = 5173
 
 
 def create_app(paths: Paths, port: int = 8765, runner: StateSource | None = None, dev: bool = False) -> FastAPI:
@@ -19,6 +21,8 @@ def create_app(paths: Paths, port: int = 8765, runner: StateSource | None = None
     app.state.runner = runner
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
     allowed = {f"http://{h}" for h in hosts}
+    if dev:  # the dev page is served by Vite, so its POSTs carry Vite's origin; a normal run never accepts it
+        allowed |= {f"http://{h}:{VITE_PORT}" for h in ("localhost", "127.0.0.1")}
 
     @app.middleware("http")
     async def origin_guard(request: Request, call_next):

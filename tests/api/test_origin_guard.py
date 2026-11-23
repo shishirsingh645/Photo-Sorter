@@ -43,6 +43,30 @@ def test_the_guard_follows_the_port_the_app_was_built_for(paths):
     assert c.post("/x", headers={"Origin": "http://localhost:8765"}).status_code == 403
 
 
+@pytest.mark.parametrize("origin", ["http://localhost:5173", "http://127.0.0.1:5173"])
+def test_only_a_dev_server_accepts_posts_from_the_vite_origin(paths, origin):
+    from fastapi.testclient import TestClient
+
+    from photosorter.api.app import create_app
+
+    live = TestClient(create_app(paths), base_url="http://127.0.0.1:8765")
+    assert live.post("/api/peek", json={}, headers={"Origin": origin}).status_code == 403
+    dev = TestClient(create_app(paths, dev=True), base_url="http://127.0.0.1:8765")
+    assert dev.post("/api/peek", json={}, headers={"Origin": origin}).status_code != 403
+
+
+def test_a_dev_server_still_refuses_other_origins_and_foreign_hosts(paths):
+    from fastapi.testclient import TestClient
+
+    from photosorter.api.app import create_app
+
+    dev = TestClient(create_app(paths, dev=True), base_url="http://127.0.0.1:8765")
+    assert dev.post("/api/peek", json={}, headers={"Origin": "http://evil.example"}).status_code == 403
+    assert dev.post("/api/peek", json={}, headers={"Origin": "http://localhost:5174"}).status_code == 403
+    # the Vite proxy sends the server's own address as Host (changeOrigin); a page's own Host is still refused
+    assert dev.get("/api/state", headers={"Host": "localhost:5173"}).status_code == 400
+
+
 def test_the_403_names_the_origin_it_expected(client):
     r = client.post("/x", headers={"Origin": "http://evil.example"})
     assert "http://127.0.0.1:8765" in r.json()["detail"] and "http://evil.example" in r.json()["detail"]
