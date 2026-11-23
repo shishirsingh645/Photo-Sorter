@@ -1,10 +1,16 @@
 """Native folder picker. Runs the dialog in a child process so tkinter gets its own main thread."""
 
+import logging
 import subprocess
 import sys
 from pathlib import Path
 
 TIMEOUT_SECONDS = 300
+log = logging.getLogger(__name__)
+
+
+class PickerFailed(Exception):
+    """The folder window crashed, timed out or could not start. A user closing it is `None`, not this."""
 
 
 def choose_folder(prompt: str) -> Path | None:
@@ -16,10 +22,14 @@ def choose_folder(prompt: str) -> Path | None:
             encoding="utf-8",
             timeout=TIMEOUT_SECONDS,
         )
-    except (subprocess.TimeoutExpired, OSError, UnicodeDecodeError):
-        # Undecodable output means the path is unknown, so report no choice rather than a mangled path.
-        return None
-    if result.returncode != 0 or not result.stdout.strip():
+    except (subprocess.TimeoutExpired, OSError, UnicodeDecodeError) as e:
+        # Undecodable output means the path is unknown, so fail rather than return a mangled path.
+        log.warning("The folder window failed", exc_info=True)
+        raise PickerFailed from e
+    if result.returncode != 0:
+        log.warning("The folder window exited with code %s: %s", result.returncode, (result.stderr or "").strip())
+        raise PickerFailed
+    if not result.stdout.strip():
         return None
     return Path(result.stdout.strip())
 

@@ -23,7 +23,7 @@ from photosorter.core.categories import (
 )
 from photosorter.core.peek import peek_folder
 from photosorter.models import Category
-from photosorter.picker import choose_folder, picker_available
+from photosorter.picker import PickerFailed, choose_folder, picker_available
 from photosorter.platform import open_folder, reveal_in_file_manager
 
 router = APIRouter()
@@ -90,6 +90,8 @@ def pick(body: PickIn) -> dict:
         raise HTTPException(409, "A folder window is already open. Please use it, or close it first.")
     try:
         chosen = choose_folder(body.prompt)
+    except PickerFailed:
+        return {"path": None, "reason": "The folder window did not work."}
     finally:
         _pick_lock.release()
     return {"path": str(chosen) if chosen else None, "reason": ""}

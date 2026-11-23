@@ -1,0 +1,28 @@
+/* Ported from app.css lines 113-129 (the Advanced section of the setup card). */
+.adv { margin-top: 10px; padding-top: 4px; border-top: 1px solid var(--hair); }
+.adv h4 { margin: 12px 0 6px; font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
+.fchips { display: flex; flex-wrap: wrap; gap: 5px; }
+.fchip { display: inline-flex; align-items: center; gap: 2px; height: 26px; padding: 0 4px 0 10px; border-radius: 999px; border: 1px solid var(--chip-border); background: var(--paper); font-size: 12px; color: var(--ink-2); }
+.fchip button { width: 20px; height: 20px; border: 0; border-radius: 50%; background: none; color: var(--faint); display: grid; place-items: center; }
+.fchip button:hover { background: var(--hover); color: var(--ink); }
+.fchip button svg { width: 11px; height: 11px; }
+.fchip.add { padding: 0 3px; border-style: dashed; }
+.newf { display: flex; flex-wrap: wrap; gap: 5px; width: 100%; }
+.newf input { flex: 1 1 120px; height: 28px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--chip-border); background: var(--paper); color: var(--ink); font-size: 12px; min-width: 0; }
+.opt { display: flex; gap: 9px; align-items: flex-start; padding: 8px 10px; margin-bottom: 6px; border-radius: 10px; border: 1px solid var(--border); cursor: pointer; }
+.opt.on { border-color: var(--accent); background: var(--accent-tint); }
+.opt input { margin-top: 2px; accent-color: var(--accent); }
+.opt b { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.opt small { display: block; color: var(--ink-3); font-size: 12px; margin-top: 2px; line-height: 1.4; }
+.checkRow { display: inline-flex; gap: 6px; align-items: center; margin-top: 6px; color: var(--ink-3); font-size: 12.5px; }
+.paid { display: inline-block; padding: 1px 7px; border-radius: 999px; background: var(--brand-tint); color: var(--brand); font-size: 10.5px; font-weight: 700; }
+.meta { display: flex; align-items: center; gap: 4px; margin: 4px 0 0; color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* components.css lines 13-23: the parts of .mx-btn.small.solid the Add button uses. */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 28px; padding: 0 10px;
+  border-radius: 999px; border: 1px solid var(--ink); background: var(--ink); color: var(--paper);
+  font-size: 12px; font-weight: 600; white-space: nowrap; text-decoration: none;
+}
+.btn:hover:not(:disabled) { color: var(--paper); opacity: 0.88; }
+.btn:active:not(:disabled) { transform: scale(0.97); }

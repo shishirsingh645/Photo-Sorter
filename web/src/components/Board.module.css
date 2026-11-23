@@ -1,0 +1,14 @@
+/* Ported from app.css lines 31-36, 58 (.stage's position, the board's middle column) and the 900px rules at
+   183-188. The card rules live in FolderCard.module.css. */
+.board { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(320px, 1fr) minmax(0, 0.9fr); gap: 16px; }
+.col { min-height: 0; overflow-y: auto; scrollbar-width: thin; padding: 2px; }
+.colH { display: flex; justify-content: space-between; margin: 0 2px 8px; font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
+.colH em { font-style: normal; font-variant-numeric: tabular-nums; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 8px; }
+.stage { position: relative; }
+
+@media (max-width: 900px) {
+  .board { grid-template-columns: minmax(0, 1fr); }
+  .stage { min-height: 420px; order: -1; }
+  .col { overflow: visible; }
+}

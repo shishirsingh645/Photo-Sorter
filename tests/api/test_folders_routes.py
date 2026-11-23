@@ -7,6 +7,7 @@ from photosorter.config import write_json
 from photosorter.core.apply import folder_name
 from photosorter.core.peek import PREVIEW_BYTES_PER_FILE
 from photosorter.models import Category
+from photosorter.picker import PickerFailed
 
 R = "photosorter.api.routes_folders."
 
@@ -52,6 +53,16 @@ def test_pick_cancelled_gives_no_path_and_no_complaint(client, monkeypatch):
     monkeypatch.setattr(R + "choose_folder", lambda prompt: None)
     monkeypatch.setattr(R + "picker_available", lambda: (True, ""))
     assert client.post("/api/pick", json={"prompt": "x"}).json() == {"path": None, "reason": ""}
+
+
+def test_pick_a_crashed_window_is_told_apart_from_a_cancel(client, monkeypatch):
+    def crash(prompt):
+        raise PickerFailed
+
+    monkeypatch.setattr(R + "choose_folder", crash)
+    monkeypatch.setattr(R + "picker_available", lambda: (True, ""))
+    body = client.post("/api/pick", json={"prompt": "x"}).json()
+    assert body["path"] is None and body["reason"]  # a cancel's reason is "", this one says what happened
 
 
 def test_pick_explains_itself_when_tkinter_is_unavailable(client, monkeypatch):
