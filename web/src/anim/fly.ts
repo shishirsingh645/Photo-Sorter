@@ -5,6 +5,9 @@ import type { Tile } from "./sphere"
 /** Only what the arc needs: where the tile was last drawn and how big it was. */
 export type FlySource = Pick<Tile, "sx" | "sy" | "s">
 
+// Kept on purpose, though the reference flies regardless: img.animate() takes its duration from the call, not from the
+// stylesheet, so components.css's reduced-motion rule cannot shorten a flight. Without this a person who asked for
+// less motion would still watch hundreds of thumbnails arc across the screen; the files still land in their cards.
 const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches
 
 /**
