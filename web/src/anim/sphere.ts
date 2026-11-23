@@ -32,7 +32,9 @@ export type Sphere = {
 /** Labels arrive in batches; spread each batch over frames so it flows. */
 export const releaseCount = (queued: number) => Math.max(1, Math.ceil(queued / 45))
 
-export function createSphere(container: HTMLElement, srcs: string[]): Sphere {
+/** `anchor` is the box the sphere centres and sizes itself on: the reference's `#stage`, the board's middle column.
+ *  Without one (or while it returns null) it uses `container`, which is a full-viewport layer. */
+export function createSphere(container: HTMLElement, srcs: string[], anchor?: () => DOMRect | null): Sphere {
   container.replaceChildren()
   const total = srcs.length
   const T = Math.min(total, MAX_TILES)
@@ -83,11 +85,12 @@ export function createSphere(container: HTMLElement, srcs: string[]): Sphere {
       if (!tiles.length) return
       rot += dt * 0.00035
       const tilt = Math.sin(performance.now() / 4000) * 0.35
-      const r = container.getBoundingClientRect()
+      const r = anchor?.() ?? container.getBoundingClientRect()
       // the reference pulls the sphere up and in while a sort runs; Stage puts the mode here
       const running = container.dataset.mode === "running"
       // viewport coordinates, as in the reference, so tile positions and slot rects
       // share one frame — the container is a full-viewport fixed layer (see Stage)
+      // and the anchor's rect is a viewport rect too
       const cx = r.left + r.width / 2,
         cy = r.top + r.height * (running ? 0.42 : 0.5),
         R = Math.min(r.width, r.height) * (running ? 0.32 : 0.36)

@@ -29,6 +29,17 @@ describe("Stage", () => {
     expect(onSphere).toHaveBeenLastCalledWith(null)
   })
 
+  it("centres the sphere on the anchor it is given, not on its own viewport-sized layer", () => {
+    // jsdom has no layout, so the layer measures 0x0: a sphere that ignored the anchor would sit at 0,0
+    const stage = { left: 300, top: 100, width: 200, height: 400 } as DOMRect
+    const onSphere = vi.fn<(s: Sphere | null) => void>()
+    render(<Stage mode="setup" items={items(30)} onSphere={onSphere} anchor={() => stage} />)
+    for (const t of onSphere.mock.calls[0][0]!.tiles) {
+      expect(Math.abs(t.sx - 400)).toBeLessThanOrEqual(72 + 1e-6)
+      expect(Math.abs(t.sy - 300)).toBeLessThanOrEqual(72 + 1e-6)
+    }
+  })
+
   it("keeps the same sphere when items is a new array with the same thumbnails", () => {
     const onSphere = vi.fn<(s: Sphere | null) => void>()
     const { rerender } = render(<Stage mode="running" items={items(5)} onSphere={onSphere} />)

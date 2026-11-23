@@ -17,15 +17,21 @@ export function Stage({
   mode,
   items,
   onSphere,
+  anchor,
 }: {
   mode: Mode
   items: StageItem[]
   /** Called with the live sphere after each build and with null on teardown; later tasks fly files out of it. */
   onSphere?: (s: Sphere | null) => void
+  /** The box the sphere centres and sizes itself on (the reference's #stage). Read every frame; the layer
+   *  itself is the whole viewport, which is where it would otherwise measure. */
+  anchor?: () => DOMRect | null
 }) {
   const host = useRef<HTMLDivElement>(null)
   const cb = useRef(onSphere)
   cb.current = onSphere
+  const anchorRef = useRef(anchor)
+  anchorRef.current = anchor
 
   // Rebuild only when the thumbnail list really changes: a reducer that hands over a new
   // `items` array per SSE event must not reset retired tiles and mid-flight mappings.
@@ -43,7 +49,7 @@ export function Stage({
       const j = Math.floor(Math.random() * (i + 1))
       ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
     }
-    const sphere = createSphere(el, shuffled)
+    const sphere = createSphere(el, shuffled, () => anchorRef.current?.() ?? null)
     const stop = startLoop(dt => sphere.draw(dt))
     cb.current?.(sphere)
     return () => {

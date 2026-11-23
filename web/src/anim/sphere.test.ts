@@ -74,6 +74,38 @@ describe("createSphere", () => {
     expect(tile.alive).toBe(false)
   })
 
+  it("centres and sizes on the anchor box when one is given, not on the host", () => {
+    // the host is 800x600; the anchor is a 200x400 column starting at x 300, y 100: centre (400, 300), R 0.36 * 200
+    const stage = { left: 300, top: 100, width: 200, height: 400 } as DOMRect
+    const sphere = createSphere(el, srcs(100), () => stage)
+    sphere.draw(16)
+    for (const t of sphere.tiles) {
+      expect(Math.abs(t.sx - 400)).toBeLessThanOrEqual(72 + 1e-6)
+      expect(Math.abs(t.sy - 300)).toBeLessThanOrEqual(72 + 1e-6)
+    }
+    const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
+    expect(Math.abs(mean(sphere.tiles.map(t => t.sx)) - 400)).toBeLessThan(8)
+  })
+
+  it("lifts and shrinks the anchored sphere while a sort runs, as the reference's geom() does", () => {
+    el.dataset.mode = "running"
+    const stage = { left: 300, top: 100, width: 200, height: 400 } as DOMRect
+    const sphere = createSphere(el, srcs(100), () => stage)
+    sphere.draw(16)
+    for (const t of sphere.tiles) {
+      expect(Math.abs(t.sx - 400)).toBeLessThanOrEqual(64 + 1e-6) // 0.32 * 200
+      expect(Math.abs(t.sy - 268)).toBeLessThanOrEqual(64 + 1e-6) // 100 + 400 * 0.42
+    }
+  })
+
+  it("falls back to the host while the anchor has nothing to measure", () => {
+    const sphere = createSphere(el, srcs(100), () => null)
+    sphere.draw(16)
+    // 0.36 * 600 = 216 around (400, 300): well outside the 72 an anchored sphere here would stay within
+    expect(Math.max(...sphere.tiles.map(t => Math.abs(t.sx - 400)))).toBeGreaterThan(150)
+    for (const t of sphere.tiles) expect(Math.abs(t.sx - 400)).toBeLessThanOrEqual(216 + 1e-6)
+  })
+
   it("places every tile as soon as it is built, before any frame", () => {
     const sphere = createSphere(el, srcs(50))
     for (const t of sphere.tiles) expect(t.el.style.transform).toMatch(/translate3d/)
