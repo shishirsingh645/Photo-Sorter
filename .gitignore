@@ -22,3 +22,6 @@ web/node_modules/
 
 # generated knowledge graph
 graphify-out/
+
+# the subagent-driven-development workspace: ledgers, briefs, reports, diffs
+/.superpowers/
