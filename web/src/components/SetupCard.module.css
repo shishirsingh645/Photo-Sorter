@@ -1,0 +1,48 @@
+/* Ported from app.css lines 82-109 (the setup card), plus components.css lines 13-23 (.mx-btn, as .btn) which its buttons are. */
+.setup { width: min(380px, 100%); max-height: 100%; overflow-y: auto; scrollbar-width: thin; padding: 20px; border-radius: 18px; border: 1px solid var(--border);
+  background: var(--surface); box-shadow: var(--shadow-lift); }
+.q { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 10px; align-items: start; }
+.q + .q, .q + .acts, .q + .typed { margin-top: 14px; }
+.q.done { padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--hair); }
+.n { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; border: 1px solid var(--chip-border); color: var(--ink-3); }
+.done .n { background: var(--green-tint); border-color: transparent; color: var(--green); }
+.q h2 { margin: 1px 0 4px; font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+.q h3 { margin: 3px 0 6px; font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
+.q p { margin: 0; color: var(--ink-3); line-height: 1.5; }
+.acts { display: flex; align-items: center; gap: 10px; margin: 14px 0 0 36px; flex-wrap: wrap; }
+.acts.col { flex-direction: column; align-items: flex-start; gap: 6px; }
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bigBtn { height: 40px; padding: 0 18px; font-size: 14px; }
+.bigBtn.wide { width: 100%; }
+.bigBtn svg { width: 15px; height: 15px; }
+.typed { display: flex; gap: 6px; margin: 12px 0 0 36px; }
+.typed .field { flex: 1; margin: 0; }
+.field { width: 100%; height: 34px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--chip-border); background: var(--paper); color: var(--ink); min-width: 0; }
+.picked { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--ink); font-size: 13px; font-weight: 500; }
+.picked span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meta { display: flex; align-items: center; gap: 4px; margin: 4px 0 0; color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+.meta.mono { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.linkish { border: 0; background: none; padding: 2px 4px; color: var(--faint); font-size: 12px; text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; }
+.linkish:hover { color: var(--ink); }
+.linkish.recent { display: block; margin: 12px 0 0 32px; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.start { margin-top: 4px; }
+.start .meta { justify-content: center; margin-top: 8px; }
+.advToggle { display: flex; align-items: center; gap: 4px; margin: 14px auto 0; border: 0; background: none; color: var(--ink-3); font-size: 12.5px; font-weight: 500; }
+.advToggle svg { transition: transform var(--dur-2); }
+.advToggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+
+/* Not in the reference: its picker failed silently. These carry what the server said, in the card. */
+.notice { margin: 10px 0 0 36px; padding: 7px 10px; border-radius: 9px; background: var(--brand-tint); color: var(--brand); font-size: 12px; line-height: 1.4; }
+.start .notice { margin-left: 0; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 14px;
+  border-radius: 999px; border: 1px solid var(--chip-border); background: var(--surface); color: var(--ink-2);
+  font-size: 13px; font-weight: 500; white-space: nowrap; text-decoration: none;
+}
+.btn:hover:not(:disabled) { color: var(--ink); border-color: var(--faint); }
+.btn.solid { background: var(--ink); border-color: var(--ink); color: var(--paper); font-weight: 600; }
+.btn.solid:hover:not(:disabled) { color: var(--paper); opacity: 0.88; }
+.btn:active:not(:disabled) { transform: scale(0.97); }
+.btn.small { height: 28px; padding: 0 10px; font-size: 12px; }
+.btn:disabled { opacity: .45; cursor: default; }
