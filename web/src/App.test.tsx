@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { App } from "./App"
+import { stopLoop } from "./anim/loop"
 import { DEMO_NOTICE, DEMO_SOURCE } from "./demo"
 
 // The assembly: each test mounts the real App against a fake server, because what can go wrong here is a component
@@ -124,6 +125,17 @@ describe("demo mode", () => {
     await screen.findByRole("button", { name: "Beach folder, 1 file" })
     expect(screen.getAllByRole("button", { name: /Switch to (dark|light) mode/ })).toHaveLength(1)
     expect(document.body.dataset.mode).toBe("done")
+  })
+
+  it("shows a photo's thumbnail in the lightbox, because the demo has no originals to open", async () => {
+    serve(demoFiles)
+    open("?demo")
+    fireEvent.click(await screen.findByRole("button", { name: "Beach folder, 1 file" }))
+    const browse = await screen.findByRole("dialog", { name: "Beach" })
+    fireEvent.click(within(browse).getByRole("button", { name: "IMG_0.jpg" }))
+    const lightbox = await screen.findByRole("dialog", { name: "IMG_0.jpg" })
+    expect(within(lightbox).getByRole("img", { name: "IMG_0.jpg" })).toHaveAttribute("src", "/demo/thumbs/0.jpg")
+    expect(within(lightbox).queryByRole("alert")).not.toBeInTheDocument() // not the demo notice
   })
 
   it("blocks api writes with an explanatory toast", async () => {
@@ -324,5 +336,169 @@ describe("starting a sort", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     expect(to(calls, "/api/sort")[0].body).toMatchObject({ labeler: "claude" })
     expect(document.body.dataset.mode).toBe("running")
+  })
+})
+
+
+// ---- a live sort -----------------------------------------------------------------------------------------------------
+// The path the rAF stub keeps dark everywhere above: the library swap, the flights, the finish, the live done panel, and
+// the state the server writes late (source.json when the scan ends, `sorted` when the apply ends). Here the event stream
+// and the frame loop are both driven by hand, and the fake server answers each phase with what the real one would have
+// written by then. The page only offers the "claude" and "jev" labellers (the server's "stub" is not a choice on it), and
+// this fake server labels nothing itself, so the run needs neither.
+
+/** The one EventSource the page opens. */
+class Stream {
+  static last: Stream | null = null
+  onmessage: ((m: { data: string }) => void) | null = null
+  constructor(readonly url: string) {
+    Stream.last = this
+  }
+  close() {}
+}
+const emit = async (e: object) => {
+  await act(async () => {
+    Stream.last!.onmessage!({ data: JSON.stringify(e) })
+  })
+}
+/** Lets what React scheduled after a render (the effects of an answer that arrived outside act) run. */
+const settle = () => act(() => new Promise<void>((r) => setTimeout(r, 30)))
+let queued: FrameRequestCallback[] = []
+/** One animation frame, taken far enough on that a count-up has finished. */
+const frame = () =>
+  act(() => {
+    const run = queued
+    queued = []
+    for (const fn of run) fn(performance.now() + 10_000)
+  })
+/** Steps frames until `check` stops throwing: a flight, a landing and the release of the next file each take one. */
+const frames = (check: () => void) =>
+  waitFor(() => {
+    frame()
+    check()
+  })
+
+const SRC = "/Users/me/Pics"
+const PREFILL = "?source=%2FUsers%2Fme%2FPics&dest=%2FUsers%2Fme%2Fout"
+const sortJob = (over = {}) =>
+  job({ step: "sort", running: true, phase: "scan", phases: ["scan", "dupes", "label", "apply"], started: 1000, phase_started: 1000, ...over })
+const ALL = { scan: true, dupes: true, label: true, jev_labels: false, apply: true }
+const inventory2 = inventory.map((r) => ({ ...r, name: `RUN2_${r.id}.jpg` })) // the second sort's library names its files differently
+
+/** The server as a sort moves through it. `/api/sort` answers before the scan has written anything. */
+function liveServer() {
+  const srv = { state: appState() as unknown, sort: appState({ job: sortJob() }) as unknown, inventory: inventory as unknown }
+  const routes: Record<string, unknown> = {
+    "/api/state": () => srv.state,
+    "/api/sort": () => srv.sort,
+    "/api/peek": peekOf,
+    "/api/labels": { "0": "beach" },
+  }
+  const calls = serve(routes)
+  return {
+    calls,
+    srv,
+    /** The scan has ended: its files are on disk, and /api/state knows the source. */
+    scanned(state: unknown) {
+      routes["/data/slim.json"] = slim
+      routes["/data/dupes.json"] = dupes
+      routes["/data/inventory.json"] = () => srv.inventory
+      srv.state = state
+    },
+    /** The apply has ended: the final labels are on disk, and /api/state knows the sorted folder. */
+    applied(state: unknown) {
+      routes["/data/labels.json"] = labels
+      srv.state = state
+    },
+  }
+}
+type Live = ReturnType<typeof liveServer>
+
+/** Through the scan and into labelling, until file 0 has landed in Beach. `seen` is what the title row shows once
+ * the state has been taken again. */
+async function labelled(live: Live, started: number, seen: string, over = {}) {
+  live.scanned(appState({ source: SRC, files: 3, bytes: 54_000_000, job: sortJob({ started, phase: "dupes" }), ...over }))
+  await emit({ type: "phase_started", phase: "dupes" })
+  await screen.findByText(seen)
+  await emit({ type: "phase_started", phase: "label" })
+  await frames(() => expect(screen.getByRole("button", { name: "Beach folder, 1 file" })).toBeInTheDocument())
+}
+/** The sort ends, and every file still waiting flies; the dashboard is done once its last one has landed. */
+async function ended(live: Live, started: number) {
+  live.applied(appState({ source: SRC, files: 3, bytes: 54_000_000, sorted: "/Users/me/out", steps: ALL, job: sortJob({ started, running: false, code: 0, phase: "apply" }) }))
+  await emit({ type: "job_finished", step: "sort", code: 0 })
+  await frames(() => expect(screen.getByText(/with one prompt/)).toBeInTheDocument())
+}
+
+describe("a live sort", () => {
+  beforeEach(() => {
+    queued = []
+    Stream.last = null
+    vi.stubGlobal("requestAnimationFrame", (fn: FrameRequestCallback) => queued.push(fn))
+    vi.stubGlobal("EventSource", Stream)
+    // reduced motion: a flight lands where it starts, so one frame is all a file needs, and no confetti is drawn
+    vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("reduce"), media: q }))
+    stopLoop() // an earlier test's stub left the loop believing a frame is already on its way
+  })
+
+  it("takes the state again when the scan ends and when the sort ends, and keeps folders shut until the scan is over", async () => {
+    const live = liveServer()
+    open(PREFILL)
+    await screen.findByTitle("/Users/me/out")
+    fireEvent.click(screen.getByRole("button", { name: /Start sorting/ }))
+    await screen.findByRole("button", { name: "Stop sorting" })
+    // /api/sort answered before the scan wrote source.json, so the title row has no source yet
+    expect(screen.queryByText("~/Pics")).not.toBeInTheDocument()
+
+    // a folder opened now has no inventory to show; reading it would cache an empty one for the whole page
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: /Beach folder/ }))
+    await settle()
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(to(live.calls, "/data/inventory.json")).toHaveLength(0)
+    expect(to(live.calls, "/api/state")).toHaveLength(1)
+
+    await labelled(live, 1000, "~/Pics") // the title row learns the source from the state asked for when the scan ended
+    expect(to(live.calls, "/api/state")).toHaveLength(2)
+
+    await ended(live, 1000)
+    expect(await screen.findByRole("button", { name: /Open sorted folder/ })).toBeInTheDocument() // `sorted` came with the last refresh
+    expect(to(live.calls, "/api/state")).toHaveLength(3)
+    expect(screen.getByText("Sorted")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Duplicates folder, 1 file" })).toBeInTheDocument() // every file landed
+    expect(screen.getByRole("button", { name: "Clips folder, 1 file" })).toBeInTheDocument()
+  })
+
+  it("reads each sort's own inventory, not the one cached for the sort before it", async () => {
+    const live = liveServer()
+    open(PREFILL)
+    await screen.findByTitle("/Users/me/out")
+    fireEvent.click(screen.getByRole("button", { name: /Start sorting/ }))
+    await screen.findByRole("button", { name: "Stop sorting" })
+    await labelled(live, 1000, "~/Pics")
+    await ended(live, 1000)
+
+    fireEvent.click(await screen.findByRole("button", { name: "Beach folder, 1 file" }))
+    const first = await screen.findByRole("dialog", { name: "Beach" })
+    expect(within(first).getByRole("button", { name: "IMG_0.jpg" })).toBeInTheDocument()
+    expect(to(live.calls, "/data/inventory.json")).toHaveLength(1)
+    fireEvent.keyDown(document, { key: "Escape" })
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+
+    // New sort, the same photos again, and a library that now names its files differently
+    fireEvent.click(screen.getByRole("button", { name: /New sort/ }))
+    fireEvent.click(await screen.findByRole("button", { name: /Last time/ }))
+    fireEvent.click(await screen.findByRole("button", { name: /Next to my photos/ }))
+    live.srv.inventory = inventory2
+    live.srv.sort = appState({ source: SRC, job: sortJob({ started: 2000, phase_started: 2000 }) })
+    fireEvent.click(await screen.findByRole("button", { name: /Start sorting/ }))
+    await screen.findByRole("button", { name: "Stop sorting" })
+    await labelled(live, 2000, "~/Pics · sample of 100", { limit: 100 })
+
+    fireEvent.click(screen.getByRole("button", { name: "Beach folder, 1 file" }))
+    const second = await screen.findByRole("dialog", { name: "Beach" })
+    expect(within(second).getByRole("button", { name: "RUN2_0.jpg" })).toBeInTheDocument()
+    expect(within(second).queryByRole("button", { name: "IMG_0.jpg" })).toBeNull()
+    expect(to(live.calls, "/data/inventory.json")).toHaveLength(2)
   })
 })

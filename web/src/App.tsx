@@ -56,10 +56,12 @@ type Dialog = null | { kind: "folders" } | { kind: "browse"; folder: FolderCateg
 interface Lib {
   kind: "none" | "static" | "live"
   loading: Promise<void> | null
+  /** The slim index has been read, so the scan is over and inventory.json is complete. */
+  loaded: boolean
   dupes: Promise<void> | null
   lastLabelsAt: number
 }
-const freshLib = (): Lib => ({ kind: "none", loading: null, dupes: null, lastLabelsAt: 0 })
+const freshLib = (): Lib => ({ kind: "none", loading: null, loaded: false, dupes: null, lastLabelsAt: 0 })
 
 /** useJobEvents opens an EventSource as soon as it mounts, so demo mode (which has no server stream) leaves it out. */
 function JobEvents({ onEvent }: { onEvent: (e: StreamEvent) => void }) {
@@ -102,10 +104,13 @@ export function App() {
   const setupRef = useRef<HTMLDivElement>(null)
   const sphereRef = useRef<Sphere | null>(null)
   const onSphere = useCallback((s: Sphere | null) => void (sphereRef.current = s), [])
+  // The reference's geom() measures #stage, the board's middle column; the sphere's own layer is the whole viewport.
+  const stageRect = useCallback(() => stageRef.current?.getBoundingClientRect() ?? null, [])
   const keys = useMemo(() => new Set(categories.map((c) => c.key)), [categories])
   // The latest of what callbacks outside React's render (the player, a timer, an await) need to read.
-  const cur = useRef({ mode, keys, job, items, byId: new Map<number, SlimItem>(), replaying, onFinished: () => {} })
+  const cur = useRef({ mode, rmode, keys, job, items, byId: new Map<number, SlimItem>(), replaying, onFinished: () => {} })
   cur.current.mode = mode
+  cur.current.rmode = rmode
   cur.current.keys = keys
   cur.current.job = job
   cur.current.items = items
@@ -193,6 +198,7 @@ export function App() {
   // ---- a live sort -------------------------------------------------------------------------------------
   function beginRunning() {
     runGen.current++
+    inventory.current = null // the new scan writes a new inventory.json
     lib.current = { ...freshLib(), kind: "live" }
     setLibrary([])
     player.load([])
@@ -208,6 +214,18 @@ export function App() {
     beginRunning()
   }, [job.running, job.step, job.started])
 
+  /** The server writes source.json when the scan ends and `sorted` when the apply ends, so the state that /api/sort
+   * answered with is stale by then. A failed refresh is left to the stream's snapshot and the tab's next visit. */
+  async function refreshState(gen: number) {
+    try {
+      const next = await api.getState()
+      // An answer that still has the job running, after the stream said it ended, was asked for before the end.
+      if (gen === runGen.current && !(next.job.running && cur.current.rmode === "done")) dispatch({ type: "state", state: next })
+    } catch {
+      /* the next snapshot brings it */
+    }
+  }
+
   /** After the scan, the sphere's preview photos give way to the real library (the reference's libraryLoaded). */
   function ensureLibrary(): Promise<void> {
     const L = lib.current
@@ -219,6 +237,8 @@ export function App() {
         player.load(loaded)
         player.startLive()
         setRunInfo({ files: loaded.length, bytes: loaded.reduce((s, r) => s + r.bytes, 0) })
+        L.loaded = true
+        return refreshState(gen) // the scan has ended: the source, the sample size and the file count are known now
       },
       (e) => {
         L.loading = null
@@ -286,6 +306,7 @@ export function App() {
         await ensureLibrary()
         await ensureDupes()
         const final = await loadLabelsFile()
+        await refreshState(gen) // `sorted` is written when the apply ends: the done page's "Open sorted folder" needs it
         if (gen !== runGen.current) return
         for (const it of cur.current.items) {
           if (final[it.id]) it.cat = final[it.id]
@@ -441,6 +462,7 @@ export function App() {
   }
   function newSort() {
     runGen.current++
+    inventory.current = null
     lib.current = freshLib()
     player.load([])
     setLibrary([])
@@ -462,19 +484,24 @@ export function App() {
   // ---- dialogs -----------------------------------------------------------------------------------------
   /** The whole inventory, once, the first time a folder is opened (spec 13.2): never at page load. */
   function ensureInventory() {
-    inventory.current ??= loadLibrary().then(
+    if (inventory.current) return inventory.current
+    const p: Promise<Map<number, LibraryItem>> = loadLibrary().then(
       (list) => new Map(list.map((r) => [r.id, r])),
       (e) => {
-        inventory.current = null
+        if (inventory.current === p) inventory.current = null // not a newer run's
         throw e
       },
     )
-    return inventory.current
+    return (inventory.current = p)
   }
   async function openFolder(c: FolderCategory) {
     if (mode === "setup" || mode === "loading") return // the cards are inert while choosing folders (app.js 120)
+    // A live sort has no inventory.json until its scan has ended; reading it earlier would cache an empty one.
+    if (lib.current.kind === "live" && !lib.current.loaded) return
+    const gen = runGen.current
     try {
       const full = await ensureInventory()
+      if (gen !== runGen.current) return // a new run, or New sort, began while it loaded
       // A snapshot, as the reference's `all`: a move must not shrink the list under an open lightbox.
       const list = cur.current.items.flatMap((it) => {
         const r = inFolder(it, c.key) ? full.get(it.id) : undefined
@@ -502,10 +529,10 @@ export function App() {
     [runInfo, job.phases],
   )
   const totalBytes = useMemo(() => items.reduce((s, r) => s + r.bytes, 0), [items])
-  const previews = useMemo(() => {
-    const names: unknown = pick.source && pick.peek ? pick.peek.previews : null
-    return Array.isArray(names) ? (names as string[]).map((n) => ({ mini: previewUrl(n) })) : NO_STAGE
-  }, [pick.source, pick.peek])
+  const previews = useMemo(
+    () => (pick.source && pick.peek ? pick.peek.previews.map((n) => ({ mini: previewUrl(n) })) : NO_STAGE),
+    [pick.source, pick.peek],
+  )
   const minis = useMemo(() => items.map((it) => ({ mini: miniOf(it) })), [items])
   // Identity-stable across SSE events: it changes with the library and the folder chosen, never with the job.
   const stageItems = useMemo(
@@ -607,7 +634,7 @@ export function App() {
         </Board>
       </main>
 
-      <Stage key={epoch} mode={mode} items={stageItems} onSphere={onSphere} />
+      <Stage key={epoch} mode={mode} items={stageItems} onSphere={onSphere} anchor={stageRect} />
       <div ref={layerRef} className={layers.fly} />
       <Toast text={toast.text} on={toast.on} />
 
@@ -631,6 +658,7 @@ export function App() {
           categories={categories}
           fileManager={app?.file_manager ?? "file manager"}
           sorted={Boolean(app?.sorted) && !opts.demo}
+          demo={opts.demo}
           onMoved={moved}
           onClose={() => setDialog(null)}
         />
