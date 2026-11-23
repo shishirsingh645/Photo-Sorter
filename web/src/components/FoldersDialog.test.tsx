@@ -84,6 +84,26 @@ describe("FoldersDialog", () => {
     expect(saveCategories).not.toHaveBeenCalled()
   })
 
+  it("keeps the error outside the scrolling rows, where Save's footer is", async () => {
+    setup()
+    fireEvent.click(screen.getByRole("button", { name: "Photo folder" }))
+    save()
+    const alert = await screen.findByRole("alert")
+    const dialog = screen.getByRole("dialog")
+    const topLevel = (el: HTMLElement) => {
+      let n = el
+      while (n.parentElement !== dialog) n = n.parentElement!
+      return n
+    }
+    expect(topLevel(alert)).not.toBe(topLevel(names()[0])) // not in the region that scrolls with the rows
+    expect(topLevel(alert)).not.toBe(topLevel(screen.getByRole("button", { name: "Save folders" }))) // above the footer, not in it
+  })
+
+  it("shows the folder icon for a folder saved with no emoji", () => {
+    render(<FoldersDialog categories={[{ ...cats[0], emoji: "" }, cats[1]]} onSaved={vi.fn()} onClose={vi.fn()} />)
+    expect((screen.getAllByLabelText("Emoji")[0] as HTMLInputElement).value).toBe("📁")
+  })
+
   it("says what the server said when it refuses the list, and does not report a save", async () => {
     vi.mocked(saveCategories).mockRejectedValue(new ApiError("Labelling is running, so folders cannot change.", 409))
     const { onSaved } = setup()

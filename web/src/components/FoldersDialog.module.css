@@ -8,3 +8,4 @@
   .folderRow { grid-template-columns: 44px minmax(0, 1fr) 34px; }
   .folderRow .rule, .folderRow .seg { grid-column: 2 / -1; }
 }
+.error { margin: 0; padding: 10px 22px 0; color: var(--brand); font-size: 12.5px; } /* not in the reference: its error placement */

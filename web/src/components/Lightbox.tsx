@@ -60,10 +60,12 @@ export function Lightbox({ items, index, categories, onIndex, onMoved, onClose }
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.altKey || e.ctrlKey || e.metaKey) return
-      // Arrows belong to a focused select (they would change its value, and so move the photo) and to a video's seek bar.
-      if (e.target instanceof HTMLElement && /^(SELECT|INPUT|TEXTAREA|VIDEO)$/.test(e.target.tagName)) return
-      if (e.key === "ArrowLeft") go(index - 1)
-      else if (e.key === "ArrowRight") go(index + 1)
+      // A video's seek bar keeps its arrows. A focused select does not: left alone, the browser would change its
+      // value, which is a move, so the arrows are taken here (preventDefault) and used to navigate.
+      if (e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|VIDEO)$/.test(e.target.tagName)) return
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return
+      e.preventDefault()
+      go(e.key === "ArrowLeft" ? index - 1 : index + 1)
     }
     document.addEventListener("keydown", onKey)
     return () => document.removeEventListener("keydown", onKey)
@@ -97,9 +99,11 @@ export function Lightbox({ items, index, categories, onIndex, onMoved, onClose }
   }
 
   return (
-    <Dialog label={item.name} onClose={onClose} scrim={false} className={s.lightbox}>
-      <div className={s.media}>
-        {mine && "error" in mine ? (
+    <Dialog label={item.name} onClose={onClose} scrim={false} initialFocus="root" className={s.lightbox}>
+      <div className={s.media} aria-busy={!mine}>
+        {!mine ? (
+          <p className={s.notice}>Loading…</p>
+        ) : mine && "error" in mine ? (
           <p className={s.notice} role="alert">
             <Failure error={mine.error} />
           </p>

@@ -21,6 +21,7 @@ function Harness() {
   )
 }
 
+// Returns false when the key's default was prevented, i.e. when a trap took the Tab.
 const tab = (shiftKey = false) => fireEvent.keyDown(document.activeElement ?? document.body, { key: "Tab", shiftKey })
 
 describe("Dialog", () => {
@@ -97,7 +98,8 @@ describe("Dialog", () => {
         </Dialog>
         {withInner && (
           <Dialog label="Inner" onClose={inner} scrim={false}>
-            <button>inner button</button>
+            <button>inner a</button>
+            <button>inner b</button>
           </Dialog>
         )}
       </>
@@ -105,10 +107,15 @@ describe("Dialog", () => {
     const { rerender } = render(stack(false))
     rerender(stack(true)) // the lightbox opens over the browse dialog, never the other way round
 
-    // The inner dialog took focus, and Tab stays inside it.
-    expect(screen.getByText("inner button")).toHaveFocus()
-    tab()
-    expect(screen.getByText("inner button")).toHaveFocus()
+    // The inner dialog took focus. A Tab in the middle of it is nobody's to trap: had the outer dialog acted on
+    // it too (focus is outside the outer one), it would have been prevented and focus pulled to "outer button".
+    expect(screen.getByText("inner a")).toHaveFocus()
+    expect(tab()).toBe(true)
+    expect(screen.getByText("inner a")).toHaveFocus()
+    // At the inner dialog's own edge it wraps inside the inner dialog.
+    screen.getByText("inner b").focus()
+    expect(tab()).toBe(false)
+    expect(screen.getByText("inner a")).toHaveFocus()
 
     fireEvent.keyDown(document.body, { key: "Escape" })
     expect(inner).toHaveBeenCalledTimes(1)
@@ -118,5 +125,18 @@ describe("Dialog", () => {
     rerender(stack(false))
     fireEvent.keyDown(document.body, { key: "Escape" })
     expect(outer).toHaveBeenCalledTimes(1)
+  })
+
+  it("can take focus onto the dialog itself instead of its first control", () => {
+    render(
+      <Dialog label="Test" onClose={vi.fn()} scrim={false} initialFocus="root">
+        <button>first</button>
+        <button>last</button>
+      </Dialog>,
+    )
+    expect(screen.getByRole("dialog")).toHaveFocus()
+    expect(tab()).toBe(true) // forward from the dialog goes to its first control, as the browser would
+    expect(tab(true)).toBe(false) // backward from the dialog wraps to the last
+    expect(screen.getByText("last")).toHaveFocus()
   })
 })

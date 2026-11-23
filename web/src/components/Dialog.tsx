@@ -8,6 +8,9 @@ interface Props {
   /** false for the lightbox, which has no backdrop of its own to click. */
   scrim?: boolean
   className?: string
+  /** What takes focus on open: the first control (default), or the dialog itself, for a dialog whose first
+   * control is one that arrow keys or typing would change (the lightbox's Move-to select). */
+  initialFocus?: "first" | "root"
   children: ReactNode
 }
 
@@ -21,7 +24,7 @@ const focusables = (root: HTMLElement) =>
     (e) => !(e as HTMLButtonElement).disabled && !e.closest("[hidden]") && (!e.hasAttribute("tabindex") || e.tabIndex >= 0),
   )
 
-export function Dialog({ label, onClose, scrim = true, className = "", children }: Props) {
+export function Dialog({ label, onClose, scrim = true, className = "", initialFocus = "first", children }: Props) {
   const box = useRef<HTMLDivElement>(null)
   const down = useRef<EventTarget | null>(null)
   const close = useRef(onClose)
@@ -32,7 +35,7 @@ export function Dialog({ label, onClose, scrim = true, className = "", children 
     const root = box.current!
     const opener = document.activeElement as HTMLElement | null
     open.push(me)
-    const start = focusables(root)[0] ?? root
+    const start = initialFocus === "root" ? root : (focusables(root)[0] ?? root)
     start.focus()
 
     const onKey = (e: KeyboardEvent) => {

@@ -36,6 +36,17 @@ describe("loadLibrary", () => {
     expect(await loadLibrary()).toEqual([])
   })
 
+  it("fails loudly, rather than reading as empty, when the inventory is damaged or the server errors", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.endsWith("inventory.json") ? new Response("{oops") : new Response("{}"))))
+    await expect(loadLibrary()).rejects.toMatchObject({ name: "ApiError" })
+
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.endsWith("inventory.json") ? new Response("{}") : new Response("[]"))))
+    await expect(loadLibrary()).rejects.toThrow(/not a list/)
+
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.endsWith("labels.json") ? new Response("boom", { status: 500 }) : new Response("[]"))))
+    await expect(loadLibrary()).rejects.toMatchObject({ status: 500 })
+  })
+
   it("rejects with the unreachable message when the server cannot be reached", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")))
     await expect(loadLibrary()).rejects.toMatchObject({ status: 0 })

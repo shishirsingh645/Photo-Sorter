@@ -60,11 +60,45 @@ describe("Lightbox", () => {
     expect(screen.getByText(/1 of 3/)).toBeInTheDocument()
   })
 
-  it("leaves the arrow keys to a focused select instead of moving the photo", () => {
+  it("opens with focus on the dialog, not on the Move to select", () => {
     render(<Host items={[item(0), item(1)]} />)
-    key("ArrowRight", screen.getByRole("combobox", { name: "Move to folder" }))
-    expect(screen.getByText(/1 of 2/)).toBeInTheDocument()
+    expect(screen.getByRole("dialog")).toHaveFocus()
+    expect(screen.getByRole("combobox", { name: "Move to folder" })).not.toHaveFocus()
+  })
+
+  it("navigates, and never moves the photo, when an arrow key is pressed with the select focused", () => {
+    render(<Host items={[item(0), item(1), item(2)]} />)
+    const select = screen.getByRole("combobox", { name: "Move to folder" })
+    select.focus()
+
+    // fireEvent returns false when preventDefault() was called: the browser must not also change the select.
+    expect(key("ArrowRight", select)).toBe(false)
+    expect(screen.getByText(/2 of 3/)).toBeInTheDocument()
+    expect(key("ArrowLeft", select)).toBe(false)
+    expect(screen.getByText(/1 of 3/)).toBeInTheDocument()
     expect(move).not.toHaveBeenCalled()
+  })
+
+  it("keeps navigating with the arrow keys after a move", async () => {
+    render(<Host items={[item(0), item(1)]} />)
+    const select = screen.getByRole("combobox", { name: "Move to folder" })
+    select.focus()
+    fireEvent.change(select, { target: { value: "trips" } })
+    await screen.findByRole("status")
+    key("ArrowRight", select)
+    expect(screen.getByText(/2 of 2/)).toBeInTheDocument()
+    expect(move).toHaveBeenCalledTimes(1) // only the deliberate move
+  })
+
+  it("shows that it is loading until the record arrives, then the photo", async () => {
+    let arrive!: (r: LibraryItem) => void
+    vi.mocked(getRecord).mockReturnValue(new Promise((res) => (arrive = res)))
+    render(<Host items={[item(0)]} />)
+    expect(screen.getByText("Loading…")).toBeInTheDocument()
+    expect(screen.queryByRole("img")).toBeNull()
+    arrive(item(0))
+    expect(await screen.findByRole("img", { name: "IMG_0" })).toBeInTheDocument()
+    expect(screen.queryByText("Loading…")).toBeNull()
   })
 
   it("moves a photo to another folder and reports it", async () => {
@@ -180,6 +214,7 @@ describe("Lightbox", () => {
     thumb.focus()
     fireEvent.click(thumb)
     expect(screen.getAllByRole("dialog")).toHaveLength(2)
+    expect(screen.getAllByRole("dialog")[1]).toHaveFocus() // the lightbox itself, not its select
 
     key("Escape")
     const dialogs = screen.getAllByRole("dialog")

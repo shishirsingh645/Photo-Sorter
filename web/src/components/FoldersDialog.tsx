@@ -43,7 +43,7 @@ interface Props {
 
 export function FoldersDialog({ categories, onSaved, onClose }: Props) {
   const [draft, setDraft] = useState<Row[]>(() =>
-    categories.map((c, uid) => ({ ...c, kind: c.kind as Row["kind"], uid })),
+    categories.map((c, uid) => ({ ...c, kind: c.kind as Row["kind"], emoji: c.emoji || "📁", uid })), // the reference shows 📁 for none
   )
   const [error, setError] = useState("")
   const [saving, setSaving] = useState(false)
@@ -110,12 +110,13 @@ export function FoldersDialog({ categories, onSaved, onClose }: Props) {
           {draft.filter((c) => c.kind === "video").map(row)}
         </div>
         <p className={s.note}>The rule is what Claude reads, so describe each folder the way you'd explain it to a friend.</p>
-        {error && (
-          <p className={s.note} role="alert">
-            {error}
-          </p>
-        )}
       </div>
+      {/* Outside the scrolling rows, so it stays in view beside the Save button that raised it. */}
+      {error && (
+        <p className={s.error} role="alert">
+          {error}
+        </p>
+      )}
       <div className={d.foot}>
         <button className={d.btn} onClick={add("photo")}>
           <DialogIcon name="plus" />
