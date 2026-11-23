@@ -51,11 +51,11 @@ describe("createSphere", () => {
     expect(sphere.tileFor("f320")).toBe(tile)
     expect(tile.left).toBe(2)
 
-    sphere.retire(tile)
+    sphere.retire(tile, "f0")
     expect(tile.alive).toBe(true)
     expect(tile.el.style.opacity).not.toBe("0")
 
-    sphere.retire(tile)
+    sphere.retire(tile, "f320")
     expect(tile.alive).toBe(false)
     expect(tile.el.style.opacity).toBe("0")
   })
@@ -105,7 +105,7 @@ describe("createSphere", () => {
     const sphere = createSphere(el, srcs(320))
     sphere.draw(16)
     const tile = sphere.tiles[0]
-    sphere.retire(tile)
+    sphere.retire(tile, "f0")
     const frozen = tile.el.style.transform
     sphere.draw(16)
     expect(tile.el.style.transform).toBe(frozen)
