@@ -7,6 +7,10 @@ from pathlib import Path
 TIMEOUT_SECONDS = 300
 
 
+class PickerFailed(Exception):
+    """The folder window crashed, timed out or could not start. A user closing it is `None`, not this."""
+
+
 def choose_folder(prompt: str) -> Path | None:
     try:
         result = subprocess.run(
@@ -16,10 +20,12 @@ def choose_folder(prompt: str) -> Path | None:
             encoding="utf-8",
             timeout=TIMEOUT_SECONDS,
         )
-    except (subprocess.TimeoutExpired, OSError, UnicodeDecodeError):
-        # Undecodable output means the path is unknown, so report no choice rather than a mangled path.
-        return None
-    if result.returncode != 0 or not result.stdout.strip():
+    except (subprocess.TimeoutExpired, OSError, UnicodeDecodeError) as e:
+        # Undecodable output means the path is unknown, so fail rather than return a mangled path.
+        raise PickerFailed from e
+    if result.returncode != 0:
+        raise PickerFailed
+    if not result.stdout.strip():
         return None
     return Path(result.stdout.strip())
 

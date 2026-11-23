@@ -4,7 +4,7 @@ import { ApiError } from "../api/client"
 import type { AppState, PeekResult } from "../api/client"
 import * as client from "../api/client"
 import { SetupCard } from "./SetupCard"
-import type { Picked } from "./SetupCard"
+import type { Picked, SetupCardProps } from "./SetupCard"
 
 vi.mock("../api/client", async (orig) => ({
   ...(await orig<typeof import("../api/client")>()),
@@ -30,11 +30,20 @@ const peek = (over: Partial<PeekResult> = {}): PeekResult => ({
 const none: Picked = { source: null, dest: null, peek: null }
 const both: Picked = { source: "D:\\Photos", dest: "D:\\Photos (sorted)", peek: peek() }
 
-const show = (s: AppState, p: Picked = none) => {
+const show = (s: AppState, p: Picked = none, over: Partial<SetupCardProps> = {}) => {
   const onChoose = vi.fn()
   const onStart = vi.fn()
-  render(<SetupCard state={s} pick={p} onChoose={onChoose} onStart={onStart} />)
-  return { onChoose, onStart }
+  const onLabeler = vi.fn()
+  const onSample = vi.fn()
+  const onCategoriesSaved = vi.fn()
+  render(
+    <SetupCard
+      state={s} pick={p} labeler="claude" sample={false}
+      onChoose={onChoose} onStart={onStart} onLabeler={onLabeler} onSample={onSample} onCategoriesSaved={onCategoriesSaved}
+      {...over}
+    />,
+  ) // fmt: skip
+  return { onChoose, onStart, onLabeler, onSample, onCategoriesSaved }
 }
 
 beforeEach(() => vi.resetAllMocks())
@@ -85,24 +94,59 @@ describe("SetupCard", () => {
     expect(screen.getByText(/Claude labelling takes about 3 min/)).toBeInTheDocument()
   })
 
-  it("disables Start until both folders are chosen", () => {
+  it("shows Start only once both folders are chosen", () => {
     const { onStart } = show(state(), { source: "D:\\Photos", dest: null, peek: peek() })
-    expect(screen.getByRole("button", { name: /start sorting/i })).toBeDisabled()
+    expect(screen.queryByRole("button", { name: /start sorting/i })).toBeNull()
     expect(onStart).not.toHaveBeenCalled()
   })
 
-  it("starts with the chosen labeller and sample size once both are chosen", () => {
-    const { onStart } = show(state(), both)
+  it("shows no Start at all before a source is chosen", () => {
+    show(state())
+    expect(screen.queryByRole("button", { name: /start sorting/i })).toBeNull()
+  })
+
+  it("starts once both are chosen, and takes the labeller and sample from its props", () => {
+    const { onStart } = show(state({ jev_key: true }), both, { labeler: "jev", sample: true })
+    fireEvent.click(screen.getByRole("button", { name: /advanced/i }))
+    expect(screen.getByRole("radio", { name: /jev/i })).toBeChecked()
+    expect(screen.getByRole("checkbox")).toBeChecked()
     fireEvent.click(screen.getByRole("button", { name: /start sorting/i }))
-    expect(onStart).toHaveBeenCalledWith({ labeler: "claude", limit: 0 })
+    expect(onStart).toHaveBeenCalledTimes(1)
+  })
+
+  it("reports a labeller or sample change to its parent", () => {
+    const { onLabeler, onSample } = show(state(), both)
+    fireEvent.click(screen.getByRole("button", { name: /advanced/i }))
+    fireEvent.click(screen.getByRole("radio", { name: /jev/i }))
+    expect(onLabeler).toHaveBeenCalledWith("jev")
+    fireEvent.click(screen.getByRole("checkbox"))
+    expect(onSample).toHaveBeenCalledWith(true)
+  })
+
+  it("blocks a Claude start only when the server says the CLI is missing, and clears the notice on a labeller change", () => {
+    const { onStart } = show(state({ claude_cli: false }), both)
+    fireEvent.click(screen.getByRole("button", { name: /start sorting/i }))
+    expect(onStart).not.toHaveBeenCalled()
+    expect(screen.getByRole("alert")).toHaveTextContent(/not installed|isn.t installed/)
+    fireEvent.click(screen.getByRole("button", { name: /advanced/i }))
+    fireEvent.click(screen.getByRole("radio", { name: /jev/i }))
+    expect(screen.queryByRole("alert")).toBeNull()
+  })
+
+  it("starts normally when claude_cli is absent from the state", () => {
+    const { onStart } = show({ ...state(), claude_cli: undefined } as unknown as AppState, both)
+    fireEvent.click(screen.getByRole("button", { name: /start sorting/i }))
+    expect(onStart).toHaveBeenCalledTimes(1)
   })
 
   it("adds and removes folders under Advanced", async () => {
     vi.mocked(client.saveCategories).mockResolvedValue({ ok: true, count: 0 })
-    show(state(), both)
+    const { onCategoriesSaved } = show(state(), both)
     fireEvent.click(screen.getByRole("button", { name: /advanced/i }))
     fireEvent.click(screen.getByRole("button", { name: "Remove People" }))
     await waitFor(() => expect(client.saveCategories).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(onCategoriesSaved).toHaveBeenCalledTimes(1))
+    expect(onCategoriesSaved.mock.calls[0][0].map((c: { key: string }) => c.key)).toEqual(["other", "clips", "misc-video"])
     expect(vi.mocked(client.saveCategories).mock.calls[0][0].map((c) => c.key)).toEqual(["other", "clips", "misc-video"])
     expect(screen.queryByRole("button", { name: "Remove People" })).toBeNull() // gone at once, not after a refresh
   })
@@ -133,9 +177,20 @@ describe("SetupCard", () => {
     fireEvent.click(screen.getByRole("button", { name: /choose folder/i }))
     await waitFor(() => expect(onChoose).toHaveBeenCalledWith("source", "D:\\Chosen"))
     vi.mocked(client.pick).mockResolvedValueOnce({ path: null, reason: "" })
+    await waitFor(() => expect(screen.getByRole("button", { name: /choose folder/i })).toBeEnabled())
     fireEvent.click(screen.getByRole("button", { name: /choose folder/i }))
     await waitFor(() => expect(client.pick).toHaveBeenCalledTimes(2))
+    // picking clears after the awaits: wait for that before looking for a notice that must not exist
+    await waitFor(() => expect(screen.getByRole("button", { name: /choose folder/i })).toBeEnabled())
+    expect(onChoose).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole("alert")).toBeNull()
+  })
+
+  it("shows the server's reason when the folder window crashed instead of closing", async () => {
+    vi.mocked(client.pick).mockResolvedValueOnce({ path: null, reason: "The folder window closed unexpectedly." })
+    show(state())
+    fireEvent.click(screen.getByRole("button", { name: /choose folder/i }))
+    expect(await screen.findByRole("alert")).toHaveTextContent("The folder window closed unexpectedly.")
   })
 
   it("tells the user when a folder window is already open, and when the server is unreachable", async () => {

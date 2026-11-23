@@ -22,7 +22,14 @@ export interface SetupCardProps {
   pick: Picked
   /** `null` clears a choice (the "Change" links). The parent clears the destination with a new source. */
   onChoose: (key: Key, path: string | null) => void
-  onStart: (args: { labeler: Labeler; limit: number }) => void
+  /** The labeller and the 200-file sample live with the parent, so a top-bar start sees them too. */
+  labeler: Labeler
+  sample: boolean
+  onLabeler: (l: Labeler) => void
+  onSample: (on: boolean) => void
+  /** The server has the new folder list; the board and the Edit-folders dialog must follow. */
+  onCategoriesSaved: (categories: AppState["categories"]) => void
+  onStart: () => void
 }
 
 const fmt = (n: number) => Math.round(n).toLocaleString("en-US")
@@ -36,12 +43,10 @@ function examplePath(platform: string) {
 }
 
 /** Ported from app.js setupCard (lines 316-383). */
-export function SetupCard({ state, pick, onChoose, onStart }: SetupCardProps) {
+export function SetupCard({ state, pick, onChoose, labeler, sample, onLabeler, onSample, onCategoriesSaved, onStart }: SetupCardProps) {
   const [typing, setTyping] = useState<Key | null>(null)
   const [draft, setDraft] = useState("")
   const [advanced, setAdvanced] = useState(false)
-  const [labeler, setLabeler] = useState<Labeler>("claude")
-  const [sample, setSample] = useState(false)
   const [picking, setPicking] = useState(false)
   const [notice, setNotice] = useState("")
   const [cats, setCats] = useState(state.categories)
@@ -86,6 +91,7 @@ export function SetupCard({ state, pick, onChoose, onStart }: SetupCardProps) {
     setCats(next)
     try {
       await saveCategories(next.map(({ key, kind, label, emoji, rule }) => ({ key, kind: kind as "photo" | "video", label, emoji, rule })))
+      onCategoriesSaved(next)
     } catch (e) {
       setCats(before)
       setNotice(e instanceof ApiError ? e.message : "The folders could not be saved.")
@@ -129,9 +135,9 @@ export function SetupCard({ state, pick, onChoose, onStart }: SetupCardProps) {
 
   const start = () => {
     if (labeler === "jev" && !state.jev_key) return setNotice("Add JEV_KEY=your-key to a .env file in this folder to use Jev.")
-    if (labeler === "claude" && !state.claude_cli) return setNotice("Claude Code isn't installed on this computer. Install it, or pick Jev under Advanced.")
+    if (labeler === "claude" && state.claude_cli === false) return setNotice("Claude Code isn't installed on this computer. Install it, or pick Jev under Advanced.")
     setNotice("")
-    onStart({ labeler, limit: sample ? 200 : 0 })
+    onStart()
   }
 
   const done = (title: string, path: string, key: Key, extra?: React.ReactNode) => (
@@ -229,23 +235,21 @@ export function SetupCard({ state, pick, onChoose, onStart }: SetupCardProps) {
           )}
         </>
       )}
-      <div className={styles.start}>
-        <button className={`${styles.btn} ${styles.solid} ${styles.bigBtn} ${styles.wide}`} disabled={!source || !dest} onClick={start}>
-          <Icon name="play" />
-          Start sorting
-        </button>
-        {source && dest && (
-          <p className={styles.meta}>
-            <Icon name="clock" />
-            {pk
-              ? ` Usually ${roughly(total)} for ${fmt(files)} files${labeler === "claude" ? `, of which Claude labelling takes ${roughly(est.label)}` : ""}`
-              : " Counting files…"}
-          </p>
-        )}
-        {source && dest && note}
-      </div>
       {source && dest && (
         <>
+          <div className={styles.start}>
+            <button className={`${styles.btn} ${styles.solid} ${styles.bigBtn} ${styles.wide}`} onClick={start}>
+              <Icon name="play" />
+              Start sorting
+            </button>
+            <p className={styles.meta}>
+              <Icon name="clock" />
+              {pk
+                ? ` Usually ${roughly(total)} for ${fmt(files)} files${labeler === "claude" ? `, of which Claude labelling takes ${roughly(est.label)}` : ""}`
+                : " Counting files…"}
+            </p>
+            {note}
+          </div>
           <button className={styles.advToggle} aria-expanded={advanced} onClick={() => setAdvanced(!advanced)}>
             Advanced
             <Icon name="down" />
@@ -257,8 +261,11 @@ export function SetupCard({ state, pick, onChoose, onStart }: SetupCardProps) {
               jevKey={state.jev_key}
               labeler={labeler}
               sample={sample}
-              onLabeler={setLabeler}
-              onSample={setSample}
+              onLabeler={(l) => {
+                setNotice("") // a "pick Jev" or "needs a key" notice is about the old choice
+                onLabeler(l)
+              }}
+              onSample={onSample}
               onSave={(n) => void saveCats(n)}
             />
           )}

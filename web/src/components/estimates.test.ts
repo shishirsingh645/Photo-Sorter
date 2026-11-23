@@ -12,8 +12,21 @@ describe("estimates", () => {
     expect(phaseEstimates(1136, 10.7e9, false).scan).toBe(0)
   })
 
+  it("pins the batch divisors through the label step", () => {
+    // label - 12 - files*0.012 = 14 x ceil(batches/4), batches = ceil(ceil(files/30)/3): the step moves at 30*3*4 files
+    const rounds = (files: number) => Math.round((phaseEstimates(files, 0).label - 12 - files * 0.012) / 14)
+    // 30/31 and 90/91 move `batches` (1,1 and 1,2) but not the rounds, so the output cannot tell them apart; they are pinned flat
+    expect([30, 31, 90, 91].map(rounds)).toEqual([1, 1, 1, 1])
+    expect([360, 361, 362].map(rounds)).toEqual([1, 2, 2])
+    expect([1080, 1081].map(rounds)).toEqual([3, 4])
+  })
+
   it("phrases short durations as 'under a minute'", () => {
     expect(roughly(40)).toBe("under a minute")
+    expect(roughly(49.9)).toBe("under a minute")
+    expect(roughly(50)).toBe("about a minute")
+    expect(roughly(89.9)).toBe("about a minute")
+    expect(roughly(90)).toBe("about 2 min") // round(1.5) is 2
     expect(roughly(70)).toBe("about a minute")
     expect(roughly(200)).toBe("about 3 min")
   })

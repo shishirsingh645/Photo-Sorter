@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from photosorter import picker
-from photosorter.picker import choose_folder, picker_available
+from photosorter.picker import PickerFailed, choose_folder, picker_available
 
 
 def _stub_child(monkeypatch, stdout: str, returncode: int = 0, calls: list | None = None):
@@ -57,10 +57,11 @@ def test_child_process_crash_returns_none_not_exception(monkeypatch):
     assert choose_folder("x") is None
 
 
-def test_choose_folder_returns_none_when_child_times_out(monkeypatch):
+def test_choose_folder_fails_when_child_times_out(monkeypatch):
     _stub_child_raises(monkeypatch, subprocess.TimeoutExpired(cmd="picker", timeout=300))
 
-    assert choose_folder("x") is None
+    with pytest.raises(PickerFailed):
+        choose_folder("x")
 
 
 @pytest.mark.parametrize(
@@ -71,7 +72,8 @@ def test_choose_folder_returns_none_when_child_times_out(monkeypatch):
         UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
     ],
 )
-def test_choose_folder_never_raises_on_launch_or_decode_failure(monkeypatch, error):
+def test_choose_folder_reports_launch_or_decode_failure_as_picker_failed(monkeypatch, error):
     _stub_child_raises(monkeypatch, error)
 
-    assert choose_folder("x") is None
+    with pytest.raises(PickerFailed):
+        choose_folder("x")
