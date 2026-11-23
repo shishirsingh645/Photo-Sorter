@@ -14,15 +14,31 @@ export interface BoardProps {
   photoCats: readonly BoardCard[]
   videoCats: readonly BoardCard[]
   onOpen: FolderCardProps["onOpen"]
+  /** Passed to every card; see FolderCardProps.live. */
+  live?: boolean
   /** The stage that sits between the two columns. */
   children?: ReactNode
 }
 
 const total = (cards: readonly BoardCard[]) => cards.reduce((s, c) => s + c.count, 0).toLocaleString("en-US")
 
-export const Board = forwardRef<BoardHandle, BoardProps>(function Board({ photoCats, videoCats, onOpen, children }, ref) {
+export const Board = forwardRef<BoardHandle, BoardProps>(function Board({ photoCats, videoCats, onOpen, live, children }, ref) {
   const cards = useRef(new Map<string, FolderCardHandle>())
   useImperativeHandle(ref, () => cards.current, [])
+
+  // One ref callback per key, kept across renders, so a card is not detached and re-attached on every Board render.
+  const registrars = useRef(new Map<string, (h: FolderCardHandle | null) => void>())
+  const registrar = (key: string) => {
+    let f = registrars.current.get(key)
+    if (!f) {
+      f = h => {
+        if (h) cards.current.set(key, h)
+        else cards.current.delete(key)
+      }
+      registrars.current.set(key, f)
+    }
+    return f
+  }
 
   const column = (title: string, list: readonly BoardCard[], sum: string) => (
     <section className={styles.col} aria-label={title}>
@@ -36,10 +52,8 @@ export const Board = forwardRef<BoardHandle, BoardProps>(function Board({ photoC
             key={c.category.key}
             {...c}
             onOpen={onOpen}
-            ref={h => {
-              if (h) cards.current.set(c.category.key, h)
-              else cards.current.delete(c.category.key)
-            }}
+            live={live}
+            ref={registrar(c.category.key)}
           />
         ))}
       </div>

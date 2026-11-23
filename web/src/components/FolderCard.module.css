@@ -1,4 +1,4 @@
-/* Ported from app.css lines 37-55, plus components.css's .mx-count (line 14), which the badge is. */
+/* Ported from app.css lines 37-55, plus components.css's .mx-count (line 10), which the badge is. */
 .card { position: relative; text-align: left; padding: 9px 10px 10px; border-radius: var(--r-lg); border: 1px solid var(--border);
   background: var(--surface); box-shadow: var(--shadow); color: var(--ink); transition: border-color var(--dur-2), box-shadow var(--dur-2), transform var(--dur-1); }
 .card:hover { border-color: var(--chip-border); }

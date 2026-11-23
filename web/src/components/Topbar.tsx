@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { useLayoutEffect } from "react"
 import { useTheme } from "../hooks/useTheme"
 import type { Mode } from "../state/reducer"
 import { Icon } from "./Icon"
@@ -15,18 +15,18 @@ export interface TopbarProps {
   pill: Pill
   onNewSort: () => void
   onSortWithClaude: () => void
-  onEditFolders: () => void
-  onOpenSorted: () => void
 }
 
-export function Topbar({ mode, pill, onNewSort, onSortWithClaude, onEditFolders, onOpenSorted }: TopbarProps) {
+export function Topbar({ mode, pill, onNewSort, onSortWithClaude }: TopbarProps) {
   const { theme, toggle } = useTheme()
   const done = mode === "done"
 
-  // The reference's setHeader() mirrors the mode onto <body>; the cards' setup dimming reads it.
-  useEffect(() => {
+  // The reference's setHeader() mirrors the mode onto <body> synchronously; the cards' setup dimming reads it.
+  // A layout effect lands it before paint, and the attribute goes with the Topbar.
+  useLayoutEffect(() => {
     document.body.dataset.mode = mode
   }, [mode])
+  useLayoutEffect(() => () => void delete document.body.dataset.mode, [])
 
   return (
     <header className={styles.topbar}>
@@ -41,16 +41,6 @@ export function Topbar({ mode, pill, onNewSort, onSortWithClaude, onEditFolders,
         <span>{pill.text}</span>
       </span>
       <span className={styles.spacer} />
-      <button className={`${styles.btn} ${styles.small}`} onClick={onEditFolders}>
-        <Icon name="pencil" />
-        Edit folders
-      </button>
-      {done && (
-        <button className={`${styles.btn} ${styles.small}`} onClick={onOpenSorted}>
-          <Icon name="folder" />
-          Open sorted folder
-        </button>
-      )}
       <button
         className={styles.icon}
         onClick={toggle}

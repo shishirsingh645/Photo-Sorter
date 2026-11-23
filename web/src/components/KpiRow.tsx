@@ -13,6 +13,8 @@ export interface KpiRowProps {
   saved: number
   /** 0 to 100, like the reference's bar width. The bar turns green at 100. */
   progress: number
+  /** Bytes of the whole library. Once known, the Files checked caption reads "N GB in total". */
+  totalBytes?: number
 }
 
 const n = (v: number) => v.toLocaleString("en-US")
@@ -24,7 +26,7 @@ export function KpiRow(p: KpiRowProps) {
       <div className={styles.kpi}>
         <h3>Files checked</h3>
         <b>{n(p.checked)}</b>
-        <small>photos &amp; videos</small>
+        <small>{p.totalBytes ? `${fmtSize(p.totalBytes)} in total` : "photos & videos"}</small>
       </div>
       <div className={styles.kpi}>
         <h3>Photos sorted</h3>

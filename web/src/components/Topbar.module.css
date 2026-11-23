@@ -1,5 +1,5 @@
-/* Ported from app.css lines 11-17 and 193-197, and from components.css's .mx-logo, .mx-pill, .mx-btn and .mx-icon
-   (the controls the top bar uses). .mx-btn.small is the reference's title-row button, moved here with its handlers. */
+/* Ported from app.css lines 11-17 and 193-197, and from components.css's .mx-logo (2-3), .mx-pill (4-6),
+   .mx-btn (13-22) and .mx-icon (24-25): the controls the top bar uses. */
 .topbar { position: sticky; top: 0; z-index: var(--z-nav); height: var(--top); display: flex; align-items: center; gap: 10px;
   padding: 0 20px; border-bottom: 1px solid var(--hair); background: var(--paper); }
 .spacer { flex: 1; }
@@ -23,7 +23,6 @@
 .btn.solid { background: var(--ink); border-color: var(--ink); color: var(--paper); font-weight: 600; }
 .btn.solid:hover:not(:disabled) { color: var(--paper); opacity: 0.88; }
 .btn:active:not(:disabled) { transform: scale(0.97); }
-.btn.small { height: 28px; padding: 0 10px; font-size: 12px; }
 
 .icon { width: 34px; height: 34px; border-radius: 50%; display: inline-grid; place-items: center; border: 1px solid var(--chip-border); background: var(--surface); color: var(--ink-2); flex: none; }
 .icon:hover { color: var(--ink); }
