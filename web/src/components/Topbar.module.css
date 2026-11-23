@@ -1,0 +1,35 @@
+/* Ported from app.css lines 11-17 and 193-197, and from components.css's .mx-logo, .mx-pill, .mx-btn and .mx-icon
+   (the controls the top bar uses). .mx-btn.small is the reference's title-row button, moved here with its handlers. */
+.topbar { position: sticky; top: 0; z-index: var(--z-nav); height: var(--top); display: flex; align-items: center; gap: 10px;
+  padding: 0 20px; border-bottom: 1px solid var(--hair); background: var(--paper); }
+.spacer { flex: 1; }
+
+.logo { display: inline-flex; align-items: center; gap: 9px; height: 36px; padding: 0 6px; border: 0; background: none; border-radius: var(--r-sm); font-weight: 700; font-size: 17px; letter-spacing: -0.02em; color: var(--ink); }
+.logo i { width: 24px; height: 24px; border-radius: 7px; background: var(--brand-solid); color: #fff; display: grid; place-items: center; }
+.logo i svg { width: 14px; height: 14px; }
+
+.pill { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--chip-border); color: var(--ink-3); font-size: 12px; white-space: nowrap; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+.dot.live { background: var(--green); }
+.dot.busy { background: var(--accent); animation: blink 1s infinite; }
+@keyframes blink { 50% { opacity: .3; } }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 14px;
+  border-radius: 999px; border: 1px solid var(--chip-border); background: var(--surface); color: var(--ink-2);
+  font-size: 13px; font-weight: 500; white-space: nowrap; text-decoration: none;
+}
+.btn:hover:not(:disabled) { color: var(--ink); border-color: var(--faint); }
+.btn.solid { background: var(--ink); border-color: var(--ink); color: var(--paper); font-weight: 600; }
+.btn.solid:hover:not(:disabled) { color: var(--paper); opacity: 0.88; }
+.btn:active:not(:disabled) { transform: scale(0.97); }
+.btn.small { height: 28px; padding: 0 10px; font-size: 12px; }
+
+.icon { width: 34px; height: 34px; border-radius: 50%; display: inline-grid; place-items: center; border: 1px solid var(--chip-border); background: var(--surface); color: var(--ink-2); flex: none; }
+.icon:hover { color: var(--ink); }
+
+@media (max-width: 560px) {
+  .topbar { padding: 0 12px; gap: 6px; }
+  .pill { display: none; }
+  .new { width: 34px; padding: 0; font-size: 0; gap: 0; }
+}
