@@ -29,6 +29,9 @@ const wait = (ms: number) => act(async () => void (await vi.advanceTimersByTimeA
 async function dropThenFailReconnects(n: number) {
   const hook = renderHook(() => useJobEvents(onEvent))
   open()
+  await wait(0) // the first-open snapshot is not what these tests count
+  fetchMock.mockClear()
+  onEvent.mockClear()
   await drop()
   for (let i = 0; i < n; i++) {
     await wait(900)
@@ -95,11 +98,36 @@ describe("useJobEvents", () => {
     await wait(900)
     expect(fetchMock).toHaveBeenCalled() // polling is running
 
+    const before = fetchMock.mock.calls.length
+    onEvent.mockClear()
     open() // the reconnect that was waiting in the background succeeds
     await wait(0) // one resync of the whole state, for events missed while the stream was down
+    expect(fetchMock.mock.calls.length).toBe(before + 1)
+    expect(onEvent).toHaveBeenCalledWith({ type: "snapshot", state: STATE })
     const settled = fetchMock.mock.calls.length
     await wait(9000)
     expect(fetchMock.mock.calls.length).toBe(settled)
+  })
+
+  it("fetches a snapshot on the very first open, with no error before it", async () => {
+    renderHook(() => useJobEvents(onEvent))
+    open()
+    await wait(0)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/state")
+    expect(onEvent).toHaveBeenCalledWith({ type: "snapshot", state: STATE })
+  })
+
+  it("drops a snapshot when a stream event arrived while it was in flight", async () => {
+    let answer!: (r: unknown) => void
+    fetchMock.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)))
+    renderHook(() => useJobEvents(onEvent))
+    open() // the snapshot request goes out and stays pending
+    act(() => current().onmessage?.({ data: '{"type":"log","message":"newer"}' } as MessageEvent<string>))
+    await act(async () => answer({ ok: true, status: 200, json: async () => STATE }))
+    await wait(0)
+    expect(onEvent).toHaveBeenCalledTimes(1)
+    expect(onEvent).toHaveBeenCalledWith({ type: "log", message: "newer" })
   })
 
   it("closes the stream and every timer when the component unmounts", async () => {

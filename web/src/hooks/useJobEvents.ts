@@ -21,11 +21,14 @@ export function useJobEvents(onEvent: (e: StreamEvent) => void): void {
     let poller: ReturnType<typeof setInterval> | undefined
     let errors = 0 // consecutive failed connections: the first is the drop, each later one a failed reconnect
     let stopped = false
+    let seen = 0 // stream events delivered so far; a snapshot requested before the latest one is stale
 
     const snapshot = async () => {
+      const at = seen
       try {
         const state = await getState()
-        if (!stopped) latest.current({ type: "snapshot", state })
+        // An event that arrived while the request was out is newer than this answer: drop it, don't overwrite.
+        if (!stopped && seen === at) latest.current({ type: "snapshot", state })
       } catch {
         /* the server is still away; the next tick tries again */
       }
@@ -38,14 +41,17 @@ export function useJobEvents(onEvent: (e: StreamEvent) => void): void {
     const connect = () => {
       source = new EventSource("/api/events")
       source.onopen = () => {
-        // Events sent while the stream was down are gone, so ask for the whole state once.
-        if (errors > 0) void snapshot()
+        // The server replays nothing, so events sent before this open (first connect included, which races
+        // the page's initial load) are gone: ask for the whole state on every open.
+        void snapshot()
         errors = 0
         stopPolling()
       }
       source.onmessage = (m: MessageEvent<string>) => {
         try {
-          latest.current(JSON.parse(m.data) as JobEvent)
+          const event = JSON.parse(m.data) as JobEvent
+          seen += 1
+          latest.current(event)
         } catch {
           /* a frame that is not JSON is not an event */
         }
