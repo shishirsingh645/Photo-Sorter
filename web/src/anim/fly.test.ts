@@ -74,6 +74,11 @@ describe("flyToSlot", () => {
     // sized from the tile's last drawn scale, as the reference does
     expect(parseFloat(img.style.width)).toBeCloseTo(SIZE)
     expect(img.style.height).toBe(img.style.width)
+
+    // pinned to the layer's origin by flyToSlot itself, since the keyframes translate from 0,0
+    expect(img.style.position).toBe("absolute")
+    expect(parseFloat(img.style.left)).toBe(0)
+    expect(parseFloat(img.style.top)).toBe(0)
   })
 
   it("lifts the mid-point within the reference's random bounds", () => {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createSphere, releaseCount, type Sphere } from "./sphere"
 
 const srcs = (n: number) => Array.from({ length: n }, (_, i) => `/api/mini/${i}.jpg`)
@@ -28,6 +28,9 @@ describe("createSphere", () => {
   it("distributes tiles on a unit sphere", () => {
     const sphere = createSphere(el, srcs(1_000))
     for (const t of sphere.tiles) expect(t.x ** 2 + t.y ** 2 + t.z ** 2).toBeCloseTo(1, 5)
+    // tile 1 sits one golden angle round from tile 0, whose z is 0 - the unit-length check
+    // above holds for any angle, so this is what pins pi(3 - sqrt 5)
+    expect(Math.atan2(sphere.tiles[1].z, sphere.tiles[1].x)).toBeCloseTo(Math.PI * (3 - Math.sqrt(5)), 10)
     // the golden angle spreads them: no two tiles share a position
     expect(new Set(sphere.tiles.map(t => `${t.x},${t.y}`)).size).toBe(320)
   })
@@ -55,6 +58,25 @@ describe("createSphere", () => {
     sphere.retire(tile)
     expect(tile.alive).toBe(false)
     expect(tile.el.style.opacity).toBe("0")
+  })
+
+  it("counts a file's retire once, however many times it is repeated", () => {
+    const sphere = createSphere(el, srcs(640))
+    const tile = sphere.tileFor("f0")!
+    expect(sphere.tileFor("f320")).toBe(tile)
+
+    sphere.retire(tile, "f0")
+    sphere.retire(tile, "f0") // a duplicate must not eat f320's share
+    expect(tile.left).toBe(1)
+    expect(tile.alive).toBe(true)
+
+    sphere.retire(tile, "f320")
+    expect(tile.alive).toBe(false)
+  })
+
+  it("places every tile as soon as it is built, before any frame", () => {
+    const sphere = createSphere(el, srcs(50))
+    for (const t of sphere.tiles) expect(t.el.style.transform).toMatch(/translate3d/)
   })
 
   it("releases ceil(queue/45) files per frame", () => {
@@ -97,13 +119,21 @@ describe("createSphere", () => {
 })
 
 describe("the shared frame loop", () => {
-  it("drives every subscriber from one rAF and stops when the last one leaves", async () => {
-    const { startLoop, stopLoop } = await import("./loop")
-    const frames: FrameRequestCallback[] = []
-    const raf = vi.fn((fn: FrameRequestCallback) => (frames.push(fn), frames.length))
-    vi.stubGlobal("requestAnimationFrame", raf)
-    vi.stubGlobal("cancelAnimationFrame", vi.fn())
+  const frames: FrameRequestCallback[] = []
+  const raf = vi.fn((fn: FrameRequestCallback) => frames.push(fn))
+  const cancel = vi.fn()
 
+  beforeEach(() => {
+    frames.length = 0
+    raf.mockClear()
+    cancel.mockClear()
+    vi.stubGlobal("requestAnimationFrame", raf)
+    vi.stubGlobal("cancelAnimationFrame", cancel)
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it("drives every subscriber from one rAF, and stopLoop cancels the pending frame", async () => {
+    const { startLoop, stopLoop } = await import("./loop")
     const a = vi.fn()
     const b = vi.fn()
     const stopA = startLoop(a)
@@ -119,9 +149,27 @@ describe("the shared frame loop", () => {
     expect(a).toHaveBeenCalledTimes(1)
     expect(b).toHaveBeenCalledTimes(2)
 
+    // a frame is pending now; stopLoop must cancel it, not just forget the subscribers
+    expect(frames).toHaveLength(1)
     stopLoop()
-    frames.pop()!(performance.now() + 48)
-    expect(b).toHaveBeenCalledTimes(2)
-    vi.unstubAllGlobals()
+    expect(cancel).toHaveBeenCalledTimes(1)
+    expect(cancel).toHaveBeenCalledWith(raf.mock.results[raf.mock.results.length - 1].value)
+  })
+
+  it("stops itself when the last subscriber unsubscribes from inside its own frame", async () => {
+    const { startLoop, stopLoop } = await import("./loop")
+    let stop = () => {}
+    const once = vi.fn(() => stop())
+    stop = startLoop(once)
+
+    frames.pop()!(performance.now() + 16)
+    expect(once).toHaveBeenCalledTimes(1)
+    expect(frames).toHaveLength(0) // no frame requested for an empty loop
+    expect(raf).toHaveBeenCalledTimes(1)
+
+    // and the loop wakes up again for the next subscriber
+    startLoop(vi.fn())
+    expect(raf).toHaveBeenCalledTimes(2)
+    stopLoop()
   })
 })

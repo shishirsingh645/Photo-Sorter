@@ -9,7 +9,7 @@ const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").match
 
 /**
  * `img` must already be in a full-viewport fixed overlay (the fly layer); flyToSlot
- * sizes it, animates it to `slotEl`, then removes it and calls `onLand`.
+ * positions and sizes it, animates it to `slotEl`, then removes it and calls `onLand`.
  */
 export function flyToSlot(
   tile: FlySource,
@@ -19,7 +19,8 @@ export function flyToSlot(
 ) {
   const to = slotEl.getBoundingClientRect()
   const s = 28 * (tile.s || 1)
-  img.style.width = img.style.height = `${s}px`
+  // the arc's keyframes are translate offsets from 0,0, so the img must be pinned there itself
+  Object.assign(img.style, { position: "absolute", left: "0", top: "0", width: `${s}px`, height: `${s}px` })
 
   if (reducedMotion()) {
     img.remove()

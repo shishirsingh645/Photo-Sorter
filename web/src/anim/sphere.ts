@@ -24,7 +24,8 @@ export type Sphere = {
   tiles: Tile[]
   draw(dt: number): void
   tileFor(id: string): Tile | undefined
-  retire(tile: Tile): void
+  /** `id` makes a repeat retire for the same file a no-op, like the reference's `flown` set. */
+  retire(tile: Tile, id?: string): void
   clear(): void
 }
 
@@ -71,10 +72,11 @@ export function createSphere(container: HTMLElement, srcs: string[]): Sphere {
   }
 
   const owner = new Map<string, Tile>()
+  const flown = new Set<string>()
   let next = 0
   let rot = 0
 
-  return {
+  const sphere: Sphere = {
     tiles,
 
     draw(dt) {
@@ -122,7 +124,11 @@ export function createSphere(container: HTMLElement, srcs: string[]): Sphere {
     },
 
     /** One of the tile's files has flown; the tile goes dark only when its last one has. */
-    retire(tile) {
+    retire(tile, id) {
+      if (id !== undefined) {
+        if (flown.has(id)) return
+        flown.add(id)
+      }
       if (--tile.left <= 0) {
         tile.alive = false
         tile.el.style.opacity = "0"
@@ -133,6 +139,10 @@ export function createSphere(container: HTMLElement, srcs: string[]): Sphere {
       container.replaceChildren()
       tiles.length = 0
       owner.clear()
+      flown.clear()
     },
   }
+  // place every tile now, so none paints stacked at 0,0 until the first frame
+  sphere.draw(0)
+  return sphere
 }
