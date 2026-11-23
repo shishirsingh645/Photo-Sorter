@@ -1,0 +1,11 @@
+/* Ported value-for-value from the reference components.css 130-139. */
+[role="dialog"].pc { width: min(560px, 100%); }
+.list { padding: 6px 22px; }
+.choice { display: flex; align-items: center; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--hair); }
+.choice:last-child { border-bottom: 0; }
+.choice > div { flex: 1; min-width: 0; }
+.choice b { font-size: 14px; color: var(--ink); }
+.choice p { margin: 3px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-3); }
+.choice .btn { flex: none; }
+.note { margin: 0; padding: 0 22px 18px; font-size: 12px; color: var(--ink-3); }
+@media (max-width: 560px) { .choice { flex-direction: column; align-items: stretch; } }

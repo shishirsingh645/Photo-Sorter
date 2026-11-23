@@ -1,0 +1,35 @@
+/* Ported value-for-value from the reference: components.css 109-113, 118-119 (the dialog frame), 10, 13-25,
+   27-30, 63-64 (the .mx-* controls the dialogs use) and 84 (mx-pop); tokens.css 148 (mx-fade). Keyframes are
+   redefined here because a CSS Module renames its keyframes, so tokens.css's copy is not reachable. */
+.scrim { position: fixed; inset: 0; z-index: var(--z-modal); background: #00000080; display: grid; place-items: center; padding: 16px; animation: mx-fade var(--dur-2) ease; }
+.dialog { width: min(760px, 100%); max-height: 86dvh; display: flex; flex-direction: column; border-radius: 18px; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 24px 80px -24px #00000073; animation: mx-pop var(--dur-2) var(--ease); }
+.dialog:focus { outline: none; }
+.head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px; border-bottom: 1px solid var(--hair); }
+.head h2 { margin: 0; font-size: 20px; font-weight: 600; color: var(--ink); }
+.rows { overflow-y: auto; padding: 4px 22px; }
+.foot { display: flex; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--hair); }
+.foot .spacer { flex: 1; }
+@keyframes mx-fade { from { opacity: 0; } }
+@keyframes mx-pop { from { opacity: 0; transform: scale(0.97) translateY(-4px); } }
+
+.count { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 6px; background: var(--accent-tint); color: var(--accent); font-variant-numeric: tabular-nums; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 14px;
+  border-radius: 999px; border: 1px solid var(--chip-border); background: var(--surface); color: var(--ink-2);
+  font-size: 13px; font-weight: 500; white-space: nowrap; text-decoration: none;
+}
+.btn:hover:not(:disabled) { color: var(--ink); border-color: var(--faint); }
+.btn.solid { background: var(--ink); border-color: var(--ink); color: var(--paper); font-weight: 600; }
+.btn.solid:hover:not(:disabled) { color: var(--paper); opacity: 0.88; }
+.btn:active:not(:disabled) { transform: scale(0.97); }
+.btn.ghost { border-color: transparent; background: none; }
+.btn.small { height: 28px; padding: 0 10px; font-size: 12px; }
+.icon { width: 34px; height: 34px; border-radius: 50%; display: inline-grid; place-items: center; border: 1px solid var(--chip-border); background: var(--surface); color: var(--ink-2); flex: none; }
+.icon:hover { color: var(--ink); }
+.seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--track); max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.seg button { height: 28px; padding: 0 11px; border: 0; border-radius: 7px; background: none; color: var(--ink-3); font-size: 12.5px; font-weight: 500; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+.seg button:hover { color: var(--ink); }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+.empty { color: var(--faint); font-size: 13.5px; padding: 18px 0; margin: 0; }
+.select { height: 34px; padding: 0 30px 0 12px; border-radius: 9px; border: 1px solid var(--chip-border); background: var(--surface); color: var(--ink-2); font-size: 12.5px; }
+.btn:disabled { opacity: 0.5; cursor: default; } /* not in the reference, which never disables one */
