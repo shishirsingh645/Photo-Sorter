@@ -36,4 +36,12 @@ describe("KpiRow", () => {
     expect(screen.getByRole("progressbar").firstElementChild).toHaveStyle({ width: "100%" })
     expect(screen.getByRole("progressbar")).toHaveAttribute("data-done", "true")
   })
+
+  it("says photos & videos until the library size is known, then the size in total", () => {
+    const { rerender } = render(<KpiRow {...base} />)
+    expect(screen.getByText("photos & videos")).toBeInTheDocument()
+    rerender(<KpiRow {...base} totalBytes={10_700_000_000} />)
+    expect(screen.getByText("10.7 GB in total")).toBeInTheDocument()
+    expect(screen.queryByText("photos & videos")).toBeNull()
+  })
 })

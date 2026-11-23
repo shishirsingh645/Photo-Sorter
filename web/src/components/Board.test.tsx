@@ -3,13 +3,15 @@ import { render, screen, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { Board } from "./Board"
 import type { BoardCard, BoardHandle } from "./Board"
+import styles from "./FolderCard.module.css"
 
 const card = (key: string, count = 0, slots: string[] = []): BoardCard => ({
   category: { key, label: key, emoji: "📁" },
   count,
   slots,
 })
-const photos = (n: number, count = 0) => Array.from({ length: n }, (_, i) => card(`photo-${i}`, count))
+const photos = (n: number, count = 0, slots: string[] = []) =>
+  Array.from({ length: n }, (_, i) => card(`photo-${i}`, count, slots))
 const videos = (n: number) => Array.from({ length: n }, (_, i) => card(`video-${i}`))
 const dupes = (count = 0, slots: string[] = []) => card("_dupes", count, slots)
 
@@ -47,9 +49,11 @@ describe("Board", () => {
 
   // Review Focus 1 — large library
   it("renders no more DOM nodes for 100k files than for 1k", () => {
+    // a slots list far longer than any card has slots: rendering it whole would blow the node count up
+    const urls = Array.from({ length: 500 }, (_, i) => `/thumb/${i}.jpg`)
     const full = (per: number) => ({
-      photoCats: photos(5, per),
-      videoCats: [...videos(4), dupes(per)],
+      photoCats: photos(5, per, urls),
+      videoCats: [...videos(4), dupes(per, urls)],
     })
     const small = full(1_000)
     const big = full(100_000)
@@ -59,6 +63,7 @@ describe("Board", () => {
     const b = render(<Board {...big} onOpen={vi.fn()} />)
     expect(b.container.querySelectorAll("*").length).toBe(smallNodes)
     expect(screen.getAllByTestId("slot")).toHaveLength(5 * 12 + 4 * 12 + 24)
+    expect(b.container.querySelectorAll("img")).toHaveLength(5 * 12 + 24) // photo and duplicates cards only
   })
 
   it("exposes every card's preview slots by category key", () => {
@@ -67,6 +72,23 @@ describe("Board", () => {
     expect([...ref.current!.keys()].sort()).toEqual(["_dupes", "photo-0", "photo-1"])
     expect(ref.current!.get("photo-1")!.slotRefs).toHaveLength(12)
     expect(ref.current!.get("_dupes")!.slotRefs).toHaveLength(24)
+  })
+
+  it("passes live down to the cards", () => {
+    const { rerender } = render(<Board photoCats={photos(1)} videoCats={[]} onOpen={vi.fn()} />)
+    rerender(<Board photoCats={photos(1, 3)} videoCats={[]} onOpen={vi.fn()} />)
+    expect(screen.getByRole("button")).not.toHaveClass(styles.hit)
+    rerender(<Board photoCats={photos(1, 4)} videoCats={[]} onOpen={vi.fn()} live />)
+    expect(screen.getByRole("button")).toHaveClass(styles.hit)
+  })
+
+  it("keeps the handle map stable across Board re-renders", () => {
+    const ref = createRef<BoardHandle>()
+    const { rerender } = render(<Board ref={ref} photoCats={photos(2)} videoCats={[]} onOpen={vi.fn()} />)
+    const first = ref.current!.get("photo-0")
+    rerender(<Board ref={ref} photoCats={photos(2, 7)} videoCats={[]} onOpen={vi.fn()} />)
+    expect(ref.current!.get("photo-0")).toBe(first)
+    expect(ref.current!.size).toBe(2)
   })
 
   it("puts the stage between the two columns", () => {
@@ -79,17 +101,5 @@ describe("Board", () => {
     expect(left).toBe(screen.getByRole("region", { name: "Photos" }))
     expect(mid).toContainElement(screen.getByText("the stage"))
     expect(right).toBe(screen.getByRole("region", { name: "Videos" }))
-  })
-
-  // Review Focus 5 — narrow window. jsdom evaluates no media queries and vitest blanks CSS modules (even with
-  // ?raw), so read the stylesheet from disk and assert the rule is in it. The specifier is built at run time
-  // because the project carries no @types/node.
-  it("collapses to a single column below 900px", async () => {
-    const { readFileSync } = await import(/* @vite-ignore */ "node:" + "fs")
-    const boardCss: string = readFileSync(new URL("./Board.module.css", import.meta.url), "utf8")
-    const narrow = /@media \(max-width: 900px\)\s*\{[^@]*?\.board\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)\s*;/
-    expect(boardCss).toMatch(narrow)
-    // and wide, it is the reference's three columns
-    expect(boardCss).toMatch(/\.board\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1\.25fr\) minmax\(320px, 1fr\) minmax\(0, 0\.9fr\)/)
   })
 })

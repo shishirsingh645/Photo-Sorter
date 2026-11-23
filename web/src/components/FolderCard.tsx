@@ -22,10 +22,12 @@ export interface FolderCardProps {
   /** Preview image URLs, newest first. A slot past the end of the list stays empty. */
   slots: readonly string[]
   onOpen: (category: FolderCategory) => void
+  /** True while files are landing one by one (the reference's land(live)): only then does a new file pop the badge and flash the card. A bulk fill leaves it false. */
+  live?: boolean
 }
 
 export const FolderCard = forwardRef<FolderCardHandle, FolderCardProps>(function FolderCard(
-  { category, count, slots, onOpen },
+  { category, count, slots, onOpen, live = false },
   ref,
 ) {
   const wide = category.key === DUPES_KEY
@@ -35,13 +37,13 @@ export const FolderCard = forwardRef<FolderCardHandle, FolderCardProps>(function
   const seen = useRef(count)
   useImperativeHandle(ref, () => ({ slotRefs: slotEls.current }), [])
 
-  // Like the reference's land(): each new file pops the badge and flashes the card for 260ms.
+  // Like the reference's land(live): each new file pops the badge and flashes the card for 260ms, but a bulk fill does not.
   useEffect(() => {
     const grew = count > seen.current
     seen.current = count
     const b = badge.current
     const c = card.current
-    if (!grew || !b || !c) return
+    if (!live || !grew || !b || !c) return
     b.classList.remove(styles.pop)
     void b.offsetWidth // restart the animation
     b.classList.add(styles.pop)
@@ -51,7 +53,7 @@ export const FolderCard = forwardRef<FolderCardHandle, FolderCardProps>(function
       clearTimeout(t)
       c.classList.remove(styles.hit)
     }
-  }, [count])
+  }, [count, live])
 
   const total = count.toLocaleString("en-US")
   return (

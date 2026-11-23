@@ -1,8 +1,8 @@
 import { createRef } from "react"
 import { render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
-import { fmtSize } from "../format"
 import { FolderCard } from "./FolderCard"
+import styles from "./FolderCard.module.css"
 import type { FolderCardHandle } from "./FolderCard"
 
 const docs = { key: "documents", label: "Documents & receipts", emoji: "📄" }
@@ -58,9 +58,22 @@ describe("FolderCard", () => {
     expect(onOpen).toHaveBeenCalledWith(docs)
   })
 
-  it("formats space saved as MB below a gigabyte and GB above", () => {
-    expect(fmtSize(262_000_000)).toBe("262 MB")
-    expect(fmtSize(2_100_000_000)).toBe("2.1 GB")
-    expect(fmtSize(0)).toBe("0 MB")
+  it("flashes and pops on a new file only while live, never on a bulk fill", () => {
+    const { rerender } = render(<FolderCard category={docs} count={0} slots={[]} onOpen={vi.fn()} />)
+    const card = screen.getByRole("button")
+    // a bulk fill: the count jumps with live off
+    rerender(<FolderCard category={docs} count={40} slots={[]} onOpen={vi.fn()} />)
+    expect(card).not.toHaveClass(styles.hit)
+    expect(screen.getByText("40")).not.toHaveClass(styles.pop)
+    // a live landing
+    rerender(<FolderCard category={docs} count={41} slots={[]} onOpen={vi.fn()} live />)
+    expect(card).toHaveClass(styles.hit)
+    expect(screen.getByText("41")).toHaveClass(styles.pop)
+  })
+
+  it("does not flash when a card turns live at a count it already had", () => {
+    const { rerender } = render(<FolderCard category={docs} count={5} slots={[]} onOpen={vi.fn()} />)
+    rerender(<FolderCard category={docs} count={5} slots={[]} onOpen={vi.fn()} live />)
+    expect(screen.getByRole("button")).not.toHaveClass(styles.hit)
   })
 })

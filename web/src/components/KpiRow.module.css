@@ -1,4 +1,4 @@
-/* components.css lines 41-55 (.mx-kpis, .mx-kpi, the 900px query) merged with app.css lines 23-29, which override
+/* components.css lines 44-56 (.mx-kpis, .mx-kpi, the 900px query) merged with app.css lines 23-29, which override
    them in the reference: padding-bottom 12px, b at 26px, the .of suffix and the progress bar. The unused
    svg / .line sparkline rules are not ported: this row has no charts. */
 .kpis { display: grid; grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr)); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); overflow: hidden; box-shadow: var(--shadow); position: relative; flex: none; }
